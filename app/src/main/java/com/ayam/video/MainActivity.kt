@@ -1,5 +1,6 @@
 package com.ayam.video
 
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -22,10 +23,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.MediaItem
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -48,12 +54,10 @@ fun MainAppRoot() {
     var currentVideo by remember { mutableStateOf<VideoItem?>(null) }
 
     if (currentVideo != null) {
-        // Écran de Lecture Vidéo
         PlayerScreen(video = currentVideo!!) {
-            currentVideo = null // Retour en arrière
+            currentVideo = null
         }
     } else {
-        // Application principale avec la barre de navigation
         MainScreen(onVideoClick = { video ->
             currentVideo = video
         })
@@ -182,10 +186,26 @@ fun HomeScreen(onVideoClick: (VideoItem) -> Unit) {
 
         Spacer(modifier = Modifier.height(12.dp))
 
+        // Flux vidéo de test officiel (Big Buck Bunny) pour valider ExoPlayer
         val sampleVideos = listOf(
-            VideoItem("Développement Android Jetpack Compose de zéro", "Tutoriels • 12K vues", "YouTube"),
-            VideoItem("Créer un lecteur vidéo puissant avec ExoPlayer & Media3", "Code Master • 8.5K vues", "Vimeo"),
-            VideoItem("Architecture Moderne MVVM en Kotlin 2026", "Tech Expert • 20K vues", "YouTube")
+            VideoItem(
+                "Big Buck Bunny (Animation Test)", 
+                "Blender Foundation • 60 FPS", 
+                "YouTube",
+                "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+            ),
+            VideoItem(
+                "Elephant's Dream (Open Movie)", 
+                "Blender Project • HD", 
+                "Vimeo",
+                "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4"
+            ),
+            VideoItem(
+                "For Bigger Blazes (Trailer)", 
+                "Google Samples • 4K", 
+                "Dailymotion",
+                "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4"
+            )
         )
 
         sampleVideos.forEach { video ->
@@ -197,7 +217,12 @@ fun HomeScreen(onVideoClick: (VideoItem) -> Unit) {
     }
 }
 
-data class VideoItem(val title: String, val details: String, val source: String)
+data class VideoItem(
+    val title: String, 
+    val details: String, 
+    val source: String,
+    val videoUrl: String
+)
 
 @Composable
 fun VideoCard(video: VideoItem, onClick: () -> Unit) {
@@ -268,13 +293,31 @@ fun VideoCard(video: VideoItem, onClick: () -> Unit) {
 
 @Composable
 fun PlayerScreen(video: VideoItem, onBack: () -> Unit) {
+    val context = LocalContext.current
+
+    // Initialisation d'ExoPlayer
+    val exoPlayer = remember {
+        ExoPlayer.Builder(context).build().apply {
+            val mediaItem = MediaItem.fromUri(Uri.parse(video.videoUrl))
+            setMediaItem(mediaItem)
+            prepare()
+            playWhenReady = true
+        }
+    }
+
+    // Libération des ressources de l'lecteur lorsque l'écran est quitté
+    DisposableEffect(Unit) {
+        onDispose {
+            exoPlayer.release()
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF090412))
             .padding(16.dp)
     ) {
-        // Bouton de retour
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
@@ -297,24 +340,25 @@ fun PlayerScreen(video: VideoItem, onBack: () -> Unit) {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Zone du lecteur vidéo (ExoPlayer container)
+        // Conteneur ExoPlayer natif avec contrôles intégrés
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(220.dp)
-                .background(Color(0xFF130826), shape = RoundedCornerShape(12.dp)),
-            contentAlignment = Alignment.Center
+                .background(Color(0xFF130826), shape = RoundedCornerShape(12.dp))
         ) {
-            Text(
-                text = "Lecteur ExoPlayer actif\n(Flux vidéo en préparation)",
-                color = Color(0xFF9A8CB9),
-                fontSize = 14.sp
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        player = exoPlayer
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
             )
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Détails de la vidéo sélectionnée
         Text(
             text = video.title,
             color = Color.White,
