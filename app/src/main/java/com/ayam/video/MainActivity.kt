@@ -4,7 +4,9 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
@@ -107,6 +109,7 @@ fun HomeScreen() {
         
         Spacer(modifier = Modifier.height(16.dp))
 
+        // Barre de recherche
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -130,6 +133,57 @@ fun HomeScreen() {
             fontSize = 16.sp,
             fontWeight = FontWeight.SemiBold
         )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Ligne des badges de sources défilante
+        val sources = listOf("YouTube", "Vimeo", "Dailymotion", "TikTok", "Autres API")
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            sources.forEach { source ->
+                SourceBadge(name = source)
+            }
+        }
+    }
+}
+
+@Composable
+fun SourceBadge(name: String) {
+    var isSelected by remember { mutableStateOf(true) }
+
+    Surface(
+        onClick = { isSelected = !isSelected },
+        shape = RoundedCornerShape(12.dp),
+        color = if (isSelected) Color(0xFF2E1A47) else Color(0xFF130826),
+        border = androidx.compose.foundation.BorderStroke(
+            width = 1.dp,
+            color = if (isSelected) Color(0xFFE0AAFF) else Color(0xFF3B2859)
+        ),
+        modifier = Modifier.size(width = 90.dp, height = 75.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = if (isSelected) "✔" else "＋",
+                color = if (isSelected) Color(0xFFE0AAFF) else Color(0xFF7A6B9C),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = name,
+                color = Color.White,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
     }
 }
 
