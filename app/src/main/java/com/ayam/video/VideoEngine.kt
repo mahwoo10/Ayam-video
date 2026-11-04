@@ -87,6 +87,19 @@ object VideoEngine {
         dir
     }
 
+     suspend fun resolveStream(context: Context, url: String): String =
+        withContext(Dispatchers.IO) {
+            ensureInit(context)
+            val request = YoutubeDLRequest(url)
+            request.addOption("--no-playlist")
+            request.addOption("--no-warnings")
+            request.addOption("-f", "b[ext=mp4][height<=720]/b[ext=mp4]/b")
+            request.addOption("-g")
+            val response = YoutubeDL.getInstance().execute(request)
+            response.out.lineSequence().map { it.trim() }.firstOrNull { it.startsWith("http") }
+                ?: throw IllegalStateException("Aucun lien de lecture")
+        }
+        
     private fun formatDuration(total: Long): String {
         val h = total / 3600
         val m = (total % 3600) / 60
