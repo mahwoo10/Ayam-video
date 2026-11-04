@@ -821,7 +821,7 @@ fun PlayerScreen(
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
                     Icon(
-                        imageVector = if (isDownloadsTag) Icons.Default.Check else Icons.Default.Add,
+                        imageVector = if (isDownloaded) Icons.Default.Check else Icons.Default.Add,
                         contentDescription = "Télécharger",
                         tint = if (isDownloaded) Color(0xFFE0AAFF) else Color(0xFF7A6B9C)
                     )
@@ -854,7 +854,7 @@ fun SourceBadge(name: String) {
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Alignment.Center,
+            verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
