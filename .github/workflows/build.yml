@@ -19,7 +19,17 @@ jobs:
 
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v3
-
+    - name: Generate and save debug keystore (if missing)
+      run: |
+        if [ ! -f app/debug.keystore ]; then
+          keytool -genkey -v -keystore app/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add app/debug.keystore
+          git commit -m "Ajout du debug.keystore persistant"
+          git push
+        fi
+        
     - name: Build with Gradle
       run: gradle assembleDebug
 
