@@ -17,7 +17,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -39,7 +38,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fn MainScreen() {
+fun MainScreen() {
     var selectedTab by remember { mutableStateOf(0) }
     val items = listOf("Accueil", "Recherche", "Bibliothèque", "Paramètres")
     val icons = listOf(Icons.Default.Home, Icons.Default.Search, Icons.Default.PlayArrow, Icons.Default.Settings)
@@ -99,7 +98,6 @@ fun HomeScreen() {
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        // En-tête de l'application
         Text(
             text = "AYAM VIDEO",
             color = Color(0xFFE0AAFF),
@@ -109,7 +107,6 @@ fun HomeScreen() {
         
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Barre de recherche visuelle
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -133,8 +130,6 @@ fun HomeScreen() {
             fontSize = 16.sp,
             fontWeight = FontWeight.SemiBold
         )
-        
-        // Espace réservé pour les badges de plateformes (YouTube, Dailymotion, etc.)
     }
 }
 
