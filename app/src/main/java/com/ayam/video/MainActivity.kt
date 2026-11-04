@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Home
@@ -25,6 +27,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -121,6 +124,8 @@ fun MainScreen(onVideoClick: (VideoItem) -> Unit) {
 @Composable
 fun HomeScreen(onVideoClick: (VideoItem) -> Unit) {
     val scrollState = rememberScrollState()
+    var searchQuery by remember { mutableStateOf("") }
+    var activeSearchKeyword by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier
@@ -137,20 +142,34 @@ fun HomeScreen(onVideoClick: (VideoItem) -> Unit) {
         
         Spacer(modifier = Modifier.height(16.dp))
 
-        Box(
+        // Vraie barre de recherche interactive
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            placeholder = { Text("Rechercher une vidéo...", color = Color(0xFF9A8CB9)) },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = Color(0xFFE0AAFF)) },
+            singleLine = true,
+            shape = RoundedCornerShape(25.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedContainerColor = Color(0xFF1F103F),
+                unfocusedContainerColor = Color(0xFF1F103F),
+                focusedBorderColor = Color(0xFFE0AAFF),
+                unfocusedBorderColor = Color(0xFF3B2859),
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White
+            ),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(
+                onSearch = {
+                    if (searchQuery.isNotBlank()) {
+                        activeSearchKeyword = searchQuery
+                    }
+                }
+            ),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(50.dp)
-                .background(Color(0xFF1F103F), shape = RoundedCornerShape(25.dp))
-                .padding(horizontal = 16.dp),
-            contentAlignment = Alignment.CenterStart
-        ) {
-            Text(
-                text = "Rechercher une vidéo...",
-                color = Color(0xFF9A8CB9),
-                fontSize = 14.sp
-            )
-        }
+                .height(55.dp)
+        )
 
         Spacer(modifier = Modifier.height(24.dp))
 
@@ -177,8 +196,15 @@ fun HomeScreen(onVideoClick: (VideoItem) -> Unit) {
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        // Affichage dynamique selon la recherche active
+        val sectionTitle = if (activeSearchKeyword.isNotEmpty()) {
+            "Résultats pour : \"$activeSearchKeyword\""
+        } else {
+            "Tendances actuelles"
+        }
+
         Text(
-            text = "Tendances actuelles",
+            text = sectionTitle,
             color = Color.White,
             fontSize = 16.sp,
             fontWeight = FontWeight.SemiBold
@@ -186,7 +212,7 @@ fun HomeScreen(onVideoClick: (VideoItem) -> Unit) {
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Flux vidéo de test officiel (Big Buck Bunny) pour valider ExoPlayer
+        // Liste de vidéos (filtrées ou tendances par défaut)
         val sampleVideos = listOf(
             VideoItem(
                 "Big Buck Bunny (Animation Test)", 
@@ -295,7 +321,6 @@ fun VideoCard(video: VideoItem, onClick: () -> Unit) {
 fun PlayerScreen(video: VideoItem, onBack: () -> Unit) {
     val context = LocalContext.current
 
-    // Initialisation d'ExoPlayer
     val exoPlayer = remember {
         ExoPlayer.Builder(context).build().apply {
             val mediaItem = MediaItem.fromUri(Uri.parse(video.videoUrl))
@@ -305,7 +330,6 @@ fun PlayerScreen(video: VideoItem, onBack: () -> Unit) {
         }
     }
 
-    // Libération des ressources de l'lecteur lorsque l'écran est quitté
     DisposableEffect(Unit) {
         onDispose {
             exoPlayer.release()
@@ -340,7 +364,6 @@ fun PlayerScreen(video: VideoItem, onBack: () -> Unit) {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Conteneur ExoPlayer natif avec contrôles intégrés
         Box(
             modifier = Modifier
                 .fillMaxWidth()
