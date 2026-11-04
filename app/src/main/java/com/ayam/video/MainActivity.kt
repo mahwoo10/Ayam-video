@@ -230,7 +230,7 @@ fun MainScreen(
         ) {
             when (selectedTab) {
                 0 -> HomeScreen(viewModel = viewModel, onVideoClick = onVideoClick)
-                1 -> SearchScreen(viewModel = viewModel, onVideoClick = onVideoClick)
+                1 -> RealSearchScreen(onVideoClick = onVideoClick)
                 2 -> LibraryScreen(viewModel = viewModel, onVideoClick = onVideoClick)
                 3 -> SettingsScreen()
             }
