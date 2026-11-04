@@ -127,6 +127,44 @@ fun HomeScreen(onVideoClick: (VideoItem) -> Unit) {
     var searchQuery by remember { mutableStateOf("") }
     var activeSearchKeyword by remember { mutableStateOf("") }
 
+    // Base de données de démonstration enrichie pour tester la recherche dynamique
+    val allVideos = listOf(
+        VideoItem(
+            "Big Buck Bunny (Animation Test)", 
+            "Blender Foundation • 60 FPS", 
+            "YouTube",
+            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+        ),
+        VideoItem(
+            "Elephant's Dream (Open Movie)", 
+            "Blender Project • HD", 
+            "Vimeo",
+            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4"
+        ),
+        VideoItem(
+            "For Bigger Blazes (Trailer)", 
+            "Google Samples • 4K", 
+            "Dailymotion",
+            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4"
+        ),
+        VideoItem(
+            "Jetpack Compose Tutoriel Avancé", 
+            "Android Dev • 15K vues", 
+            "YouTube",
+            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4"
+        )
+    )
+
+    // Filtrage dynamique des vidéos selon le mot-clé validé
+    val displayedVideos = if (activeSearchKeyword.isBlank()) {
+        allVideos
+    } else {
+        allVideos.filter { 
+            it.title.contains(activeSearchKeyword, ignoreCase = true) || 
+            it.source.contains(activeSearchKeyword, ignoreCase = true) 
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -142,7 +180,6 @@ fun HomeScreen(onVideoClick: (VideoItem) -> Unit) {
         
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Vraie barre de recherche interactive
         OutlinedTextField(
             value = searchQuery,
             onValueChange = { searchQuery = it },
@@ -161,9 +198,7 @@ fun HomeScreen(onVideoClick: (VideoItem) -> Unit) {
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(
                 onSearch = {
-                    if (searchQuery.isNotBlank()) {
-                        activeSearchKeyword = searchQuery
-                    }
+                    activeSearchKeyword = searchQuery
                 }
             ),
             modifier = Modifier
@@ -196,9 +231,8 @@ fun HomeScreen(onVideoClick: (VideoItem) -> Unit) {
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Affichage dynamique selon la recherche active
         val sectionTitle = if (activeSearchKeyword.isNotEmpty()) {
-            "Résultats pour : \"$activeSearchKeyword\""
+            "Résultats pour : \"$activeSearchKeyword\" (${displayedVideos.size})"
         } else {
             "Tendances actuelles"
         }
@@ -212,31 +246,24 @@ fun HomeScreen(onVideoClick: (VideoItem) -> Unit) {
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Liste de vidéos (filtrées ou tendances par défaut)
-        val sampleVideos = listOf(
-            VideoItem(
-                "Big Buck Bunny (Animation Test)", 
-                "Blender Foundation • 60 FPS", 
-                "YouTube",
-                "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
-            ),
-            VideoItem(
-                "Elephant's Dream (Open Movie)", 
-                "Blender Project • HD", 
-                "Vimeo",
-                "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4"
-            ),
-            VideoItem(
-                "For Bigger Blazes (Trailer)", 
-                "Google Samples • 4K", 
-                "Dailymotion",
-                "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4"
-            )
-        )
-
-        sampleVideos.forEach { video ->
-            VideoCard(video = video, onClick = { onVideoClick(video) })
-            Spacer(modifier = Modifier.height(12.dp))
+        if (displayedVideos.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Aucune vidéo trouvée pour cette recherche",
+                    color = Color(0xFF9A8CB9),
+                    fontSize = 14.sp
+                )
+            }
+        } else {
+            displayedVideos.forEach { video ->
+                VideoCard(video = video, onClick = { onVideoClick(video) })
+                Spacer(modifier = Modifier.height(12.dp))
+            }
         }
         
         Spacer(modifier = Modifier.height(32.dp))
@@ -417,8 +444,8 @@ fun SourceBadge(name: String) {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = if (isSelected) "✔" else "＋",
-                color = if (isSelected) Color(0xFFE0AAFF) else Color(0xFF7A6B9C),
+                text = if,
+                color = Color(0xFFE0AAFF),
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -447,3 +474,4 @@ fun PlaceholderScreen(title: String) {
         )
     }
 }
+
