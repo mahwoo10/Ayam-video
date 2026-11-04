@@ -4,12 +4,14 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
@@ -18,7 +20,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -35,7 +36,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = Color(0xFF090412)
                 ) {
-                    MainScreen()
+                    MainAppRoot()
                 }
             }
         }
@@ -43,7 +44,24 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun MainScreen() {
+fun MainAppRoot() {
+    var currentVideo by remember { mutableStateOf<VideoItem?>(null) }
+
+    if (currentVideo != null) {
+        // Écran de Lecture Vidéo
+        PlayerScreen(video = currentVideo!!) {
+            currentVideo = null // Retour en arrière
+        }
+    } else {
+        // Application principale avec la barre de navigation
+        MainScreen(onVideoClick = { video ->
+            currentVideo = video
+        })
+    }
+}
+
+@Composable
+fun MainScreen(onVideoClick: (VideoItem) -> Unit) {
     var selectedTab by remember { mutableStateOf(0) }
     val items = listOf("Accueil", "Recherche", "Bibliothèque", "Paramètres")
     val icons = listOf(Icons.Default.Home, Icons.Default.Search, Icons.Default.PlayArrow, Icons.Default.Settings)
@@ -87,7 +105,7 @@ fun MainScreen() {
                 )
         ) {
             when (selectedTab) {
-                0 -> HomeScreen()
+                0 -> HomeScreen(onVideoClick = onVideoClick)
                 1 -> PlaceholderScreen("Écran de Recherche Avancée")
                 2 -> PlaceholderScreen("Écran de la Bibliothèque")
                 3 -> PlaceholderScreen("Écran des Paramètres")
@@ -97,7 +115,7 @@ fun MainScreen() {
 }
 
 @Composable
-fun HomeScreen() {
+fun HomeScreen(onVideoClick: (VideoItem) -> Unit) {
     val scrollState = rememberScrollState()
 
     Column(
@@ -115,7 +133,6 @@ fun HomeScreen() {
         
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Barre de recherche
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -165,7 +182,6 @@ fun HomeScreen() {
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Liste de vidéos simulées pour le design
         val sampleVideos = listOf(
             VideoItem("Développement Android Jetpack Compose de zéro", "Tutoriels • 12K vues", "YouTube"),
             VideoItem("Créer un lecteur vidéo puissant avec ExoPlayer & Media3", "Code Master • 8.5K vues", "Vimeo"),
@@ -173,7 +189,7 @@ fun HomeScreen() {
         )
 
         sampleVideos.forEach { video ->
-            VideoCard(video = video)
+            VideoCard(video = video, onClick = { onVideoClick(video) })
             Spacer(modifier = Modifier.height(12.dp))
         }
         
@@ -184,14 +200,15 @@ fun HomeScreen() {
 data class VideoItem(val title: String, val details: String, val source: String)
 
 @Composable
-fun VideoCard(video: VideoItem) {
+fun VideoCard(video: VideoItem, onClick: () -> Unit) {
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF130826)),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
     ) {
         Column {
-            // Espace Miniature de la vidéo
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -199,7 +216,6 @@ fun VideoCard(video: VideoItem) {
                     .background(Color(0xFF1F103F)),
                 contentAlignment = Alignment.Center
             ) {
-                // Icône de lecture pour simuler le player
                 Surface(
                     shape = RoundedCornerShape(50),
                     color = Color(0xFF2E1A47),
@@ -214,7 +230,6 @@ fun VideoCard(video: VideoItem) {
                     }
                 }
                 
-                // Badge de source en haut à droite
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
@@ -231,7 +246,6 @@ fun VideoCard(video: VideoItem) {
                 }
             }
 
-            // Informations de la vidéo
             Column(modifier = Modifier.padding(12.dp)) {
                 Text(
                     text = video.title,
@@ -249,6 +263,70 @@ fun VideoCard(video: VideoItem) {
                 )
             }
         }
+    }
+}
+
+@Composable
+fun PlayerScreen(video: VideoItem, onBack: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF090412))
+            .padding(16.dp)
+    ) {
+        // Bouton de retour
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(
+                    imageVector = Icons.Default.ArrowBack,
+                    contentDescription = "Retour",
+                    tint = Color(0xFFE0AAFF)
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Lecture en cours",
+                color = Color(0xFFE0AAFF),
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Zone du lecteur vidéo (ExoPlayer container)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(220.dp)
+                .background(Color(0xFF130826), shape = RoundedCornerShape(12.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "Lecteur ExoPlayer actif\n(Flux vidéo en préparation)",
+                color = Color(0xFF9A8CB9),
+                fontSize = 14.sp
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Détails de la vidéo sélectionnée
+        Text(
+            text = video.title,
+            color = Color.White,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = video.details,
+            color = Color(0xFF9A8CB9),
+            fontSize = 14.sp
+        )
     }
 }
 
