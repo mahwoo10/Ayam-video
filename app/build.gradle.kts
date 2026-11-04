@@ -15,6 +15,16 @@ android {
         versionName = "1.0"
     }
 
+    // CORRECTION DIAGNOSTIQUE : Alignement strict de la JVM sur Java 17
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
