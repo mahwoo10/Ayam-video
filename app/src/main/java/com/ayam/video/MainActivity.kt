@@ -7,12 +7,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -95,9 +97,12 @@ fun MainScreen() {
 
 @Composable
 fun HomeScreen() {
+    val scrollState = rememberScrollState()
+
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(scrollState)
             .padding(16.dp)
     ) {
         Text(
@@ -136,7 +141,7 @@ fun HomeScreen() {
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Ligne des badges de sources défilante
+        // Badges de sources défilants
         val sources = listOf("YouTube", "Vimeo", "Dailymotion", "TikTok", "Autres API")
         Row(
             modifier = Modifier
@@ -148,6 +153,67 @@ fun HomeScreen() {
                 SourceBadge(name = source)
             }
         }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Catégories rapides
+        Text(
+            text = "Catégories",
+            color = Color.White,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        val categories = listOf("Musique", "Tutoriels", "Films", "Shorts", "Tendances", "Gaming")
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            categories.forEach { category ->
+                CategoryChip(name = category)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Recherches récentes
+        Text(
+            text = "Recherches récentes",
+            color = Color.White,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        val recentSearches = listOf("Jetpack Compose tutoriel", "ExoPlayer streaming", "Kotlin coroutines")
+        recentSearches.forEach { search ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.History,
+                    contentDescription = null,
+                    tint = Color(0xFF7A6B9C),
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = search,
+                    color = Color(0xFFD4C9EC),
+                    fontSize = 14.sp
+                )
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(32.dp))
     }
 }
 
@@ -181,6 +247,28 @@ fun SourceBadge(name: String) {
                 text = name,
                 color = Color.White,
                 fontSize = 12.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
+    }
+}
+
+@Composable
+fun CategoryChip(name: String) {
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = Color(0xFF1F103F),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3B2859)),
+        modifier = Modifier.height(36.dp)
+    ) {
+        Box(
+            modifier = Modifier.padding(horizontal = 16.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = name,
+                color = Color(0xFFE0AAFF),
+                fontSize = 13.sp,
                 fontWeight = FontWeight.Medium
             )
         }
