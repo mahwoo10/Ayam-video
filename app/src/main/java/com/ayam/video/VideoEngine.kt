@@ -1,105 +1,80 @@
 package com.ayam.video
 
 import android.content.Context
-import android.os.Environment
-import com.yausername.ffmpeg.FFmpeg
-import com.yausername.youtubedl_android.YoutubeDL
-import com.yausername.youtubedl_android.YoutubeDLRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
-import java.io.File
+import org.schabi.newpipe.extractor.NewPipe
+import org.schabi.newpipe.extractor.ServiceList
+import org.schabi.newpipe.extractor.search.SearchInfo
+import org.schabi.newpipe.extractor.stream.StreamInfo
+import org.schabi.newpipe.extractor.stream.StreamInfoItem
 
 object VideoEngine {
 
     @Volatile
     private var ready = false
 
-    suspend fun ensureInit(context: Context) = withContext(Dispatchers.IO) {
+    private fun ensureInit() {
         if (!ready) {
-            val app = context.applicationContext
-            YoutubeDL.getInstance().init(app)
-            FFmpeg.getInstance().init(app)
-            ready = true
+            synchronized(this) {
+                if (!ready) {
+                    NewPipe.init(AyamDownloader())
+                    ready = true
+                }
+            }
         }
     }
 
-    suspend fun search(context: Context, query: String, count: Int = 10): List<VideoItem> =
+    suspend fun search(context: Context, query: String, count: Int = 15): List<VideoItem> =
         withContext(Dispatchers.IO) {
-            ensureInit(context)
-            val request = YoutubeDLRequest("ytsearch$count:$query")
-            request.addOption("--flat-playlist")
-            request.addOption("--dump-single-json")
-            request.addOption("--no-warnings")
-            val response = YoutubeDL.getInstance().execute(request)
-            val entries = JSONObject(response.out).optJSONArray("entries")
-            val result = mutableListOf<VideoItem>()
-            if (entries != null) {
-                for (i in 0 until entries.length()) {
-                    val e = entries.optJSONObject(i) ?: continue
-                    val id = e.optString("id")
-                    if (id.isBlank()) continue
-                    val channel = e.optString("channel").ifBlank { e.optString("uploader") }
-                    val seconds = e.optLong("duration", 0L)
-                    val views = e.optLong("view_count", 0L)
-                    val details = listOf(
-                        channel,
-                        if (seconds > 0) formatDuration(seconds) else "",
-                        if (views > 0) "${formatViews(views)} vues" else ""
-                    ).filter { it.isNotBlank() }.joinToString(" • ")
-                    result.add(
+            ensureInit()
+            val yt = ServiceList.YouTube
+            val handler = yt.searchQHFactory.fromQuery(query, listOf("videos"), "")
+            val info = SearchInfo.getInfo(yt, handler)
+            info.relatedItems
+                .filterIsInstance<StreamInfoItem>()
+                .take(count)
+                .mapNotNull { item ->
+                    val id = item.url.substringAfter("v=", "").substringBefore("&")
+                    if (id.isBlank()) {
+                        null
+                    } else {
+                        val seconds = item.duration
+                        val views = item.viewCount
+                        val details = listOf(
+                            item.uploaderName ?: "",
+                            if (seconds > 0) formatDuration(seconds) else "",
+                            if (views >= 0) "${formatViews(views)} vues" else ""
+                        ).filter { it.isNotBlank() }.joinToString(" • ")
                         VideoItem(
                             id = id,
-                            title = e.optString("title", "Sans titre"),
+                            title = item.name ?: "Sans titre",
                             details = details,
                             source = "YouTube",
                             videoUrl = "https://www.youtube.com/watch?v=$id",
                             thumbnailUrl = "https://i.ytimg.com/vi/$id/hqdefault.jpg"
                         )
-                    )
+                    }
                 }
-            }
-            result
         }
 
-    suspend fun download(
-        context: Context,
-        url: String,
-        onProgress: (Float) -> Unit
-    ): File = withContext(Dispatchers.IO) {
-        ensureInit(context)
-        val dir = File(
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-            "AyamVideo"
-        )
-        if (!dir.exists()) dir.mkdirs()
-
-        val request = YoutubeDLRequest(url)
-        request.addOption("--no-playlist")
-        request.addOption("--no-mtime")
-        request.addOption("-f", "bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720][ext=mp4]/b")
-        request.addOption("--merge-output-format", "mp4")
-        request.addOption("-o", dir.absolutePath + "/%(title).80s.%(ext)s")
-
-        YoutubeDL.getInstance().execute(request, url) { progress, _, _ ->
-            onProgress(progress)
-        }
-        dir
-    }
-
-     suspend fun resolveStream(context: Context, url: String): String =
+    suspend fun resolveStream(context: Context, url: String): String =
         withContext(Dispatchers.IO) {
-            ensureInit(context)
-            val request = YoutubeDLRequest(url)
-            request.addOption("--no-playlist")
-            request.addOption("--no-warnings")
-            request.addOption("-f", "b[ext=mp4][height<=720]/b[ext=mp4]/b")
-            request.addOption("-g")
-            val response = YoutubeDL.getInstance().execute(request)
-            response.out.lineSequence().map { it.trim() }.firstOrNull { it.startsWith("http") }
-                ?: throw IllegalStateException("Aucun lien de lecture")
+            ensureInit()
+            val info = StreamInfo.getInfo(ServiceList.YouTube, url)
+            val muxed = info.videoStreams.filter { it.isUrl && it.content.isNotBlank() }
+            val best = muxed.filter { height(it.resolution) <= 720 }
+                .maxByOrNull { height(it.resolution) }
+                ?: muxed.maxByOrNull { height(it.resolution) }
+            if (best != null) return@withContext best.content
+            val hls = info.hlsUrl
+            if (!hls.isNullOrBlank()) return@withContext hls
+            throw IllegalStateException("Aucun flux lisible trouvé")
         }
-        
+
+    private fun height(resolution: String?): Int =
+        resolution?.takeWhile { it.isDigit() }?.toIntOrNull() ?: 0
+
     private fun formatDuration(total: Long): String {
         val h = total / 3600
         val m = (total % 3600) / 60
