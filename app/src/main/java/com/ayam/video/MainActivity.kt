@@ -14,7 +14,6 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.History
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -114,7 +113,6 @@ fun HomeScreen() {
         
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Barre de recherche
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -141,7 +139,6 @@ fun HomeScreen() {
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Badges de sources défilants
         val sources = listOf("YouTube", "Vimeo", "Dailymotion", "TikTok", "Autres API")
         Row(
             modifier = Modifier
@@ -156,7 +153,6 @@ fun HomeScreen() {
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Catégories rapides
         Text(
             text = "Catégories",
             color = Color.White,
@@ -180,7 +176,6 @@ fun HomeScreen() {
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Recherches récentes
         Text(
             text = "Recherches récentes",
             color = Color.White,
@@ -199,7 +194,7 @@ fun HomeScreen() {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    imageVector = Icons.Default.History,
+                    imageVector = Icons.Default.Search,
                     contentDescription = null,
                     tint = Color(0xFF7A6B9C),
                     modifier = Modifier.size(18.dp)
