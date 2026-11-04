@@ -18,9 +18,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -113,6 +115,7 @@ fun HomeScreen() {
         
         Spacer(modifier = Modifier.height(16.dp))
 
+        // Barre de recherche
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -122,7 +125,7 @@ fun HomeScreen() {
             contentAlignment = Alignment.CenterStart
         ) {
             Text(
-                text = "Rechercher une vidéo (ex. tutoriel Android)...",
+                text = "Rechercher une vidéo...",
                 color = Color(0xFF9A8CB9),
                 fontSize = 14.sp
             )
@@ -139,7 +142,7 @@ fun HomeScreen() {
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        val sources = listOf("YouTube", "Vimeo", "Dailymotion", "TikTok", "Autres API")
+        val sources = listOf("YouTube", "Vimeo", "Dailymotion", "TikTok")
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -154,7 +157,7 @@ fun HomeScreen() {
         Spacer(modifier = Modifier.height(24.dp))
 
         Text(
-            text = "Catégories",
+            text = "Tendances actuelles",
             color = Color.White,
             fontSize = 16.sp,
             fontWeight = FontWeight.SemiBold
@@ -162,53 +165,90 @@ fun HomeScreen() {
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        val categories = listOf("Musique", "Tutoriels", "Films", "Shorts", "Tendances", "Gaming")
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            categories.forEach { category ->
-                CategoryChip(name = category)
-            }
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Text(
-            text = "Recherches récentes",
-            color = Color.White,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.SemiBold
+        // Liste de vidéos simulées pour le design
+        val sampleVideos = listOf(
+            VideoItem("Développement Android Jetpack Compose de zéro", "Tutoriels • 12K vues", "YouTube"),
+            VideoItem("Créer un lecteur vidéo puissant avec ExoPlayer & Media3", "Code Master • 8.5K vues", "Vimeo"),
+            VideoItem("Architecture Moderne MVVM en Kotlin 2026", "Tech Expert • 20K vues", "YouTube")
         )
 
-        Spacer(modifier = Modifier.height(12.dp))
-
-        val recentSearches = listOf("Jetpack Compose tutoriel", "ExoPlayer streaming", "Kotlin coroutines")
-        recentSearches.forEach { search ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Search,
-                    contentDescription = null,
-                    tint = Color(0xFF7A6B9C),
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                Text(
-                    text = search,
-                    color = Color(0xFFD4C9EC),
-                    fontSize = 14.sp
-                )
-            }
+        sampleVideos.forEach { video ->
+            VideoCard(video = video)
+            Spacer(modifier = Modifier.height(12.dp))
         }
         
         Spacer(modifier = Modifier.height(32.dp))
+    }
+}
+
+data class VideoItem(val title: String, val details: String, val source: String)
+
+@Composable
+fun VideoCard(video: VideoItem) {
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF130826)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column {
+            // Espace Miniature de la vidéo
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(180.dp)
+                    .background(Color(0xFF1F103F)),
+                contentAlignment = Alignment.Center
+            ) {
+                // Icône de lecture pour simuler le player
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = Color(0xFF2E1A47),
+                    modifier = Modifier.size(50.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = "Lire",
+                            tint = Color(0xFFE0AAFF)
+                        )
+                    }
+                }
+                
+                // Badge de source en haut à droite
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                        .background(Color(0xAA090412), shape = RoundedCornerShape(8.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = video.source,
+                        color = Color(0xFFE0AAFF),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            // Informations de la vidéo
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text(
+                    text = video.title,
+                    color = Color.White,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = video.details,
+                    color = Color(0xFF9A8CB9),
+                    fontSize = 12.sp
+                )
+            }
+        }
     }
 }
 
@@ -242,28 +282,6 @@ fun SourceBadge(name: String) {
                 text = name,
                 color = Color.White,
                 fontSize = 12.sp,
-                fontWeight = FontWeight.Medium
-            )
-        }
-    }
-}
-
-@Composable
-fun CategoryChip(name: String) {
-    Surface(
-        shape = RoundedCornerShape(20.dp),
-        color = Color(0xFF1F103F),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3B2859)),
-        modifier = Modifier.height(36.dp)
-    ) {
-        Box(
-            modifier = Modifier.padding(horizontal = 16.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = name,
-                color = Color(0xFFE0AAFF),
-                fontSize = 13.sp,
                 fontWeight = FontWeight.Medium
             )
         }
