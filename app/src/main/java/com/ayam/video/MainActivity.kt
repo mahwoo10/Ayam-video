@@ -186,7 +186,7 @@ fun MainScreen(
     viewModel: VideoViewModel,
     onVideoClick: (VideoItem) -> Unit
 ) {
-    var selectedTab by remember { mutableStateOf(0) }
+    var selectedTab by SearchHolder.tabState
     val items = listOf("Accueil", "Recherche", "Bibliothèque", "Paramètres")
     val icons = listOf(Icons.Default.Home, Icons.Default.Search, Icons.Default.PlayArrow, Icons.Default.Settings)
 
