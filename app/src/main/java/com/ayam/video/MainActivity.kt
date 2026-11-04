@@ -710,9 +710,18 @@ fun PlayerScreen(
     
     var downloadState by remember { mutableStateOf(if(isDownloaded) "Téléchargé" else "Télécharger") }
 
-    val exoPlayer = remember { ExoPlayer.Builder(context).build() }
     var streamLoading by remember { mutableStateOf(true) }
     var streamError by remember { mutableStateOf<String?>(null) }
+    val exoPlayer = remember { ExoPlayer.Builder(context).build() }
+    DisposableEffect(exoPlayer) {
+        val listener = object : androidx.media3.common.Player.Listener {
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                streamError = "Lecteur : " + error.errorCodeName + " " + (error.cause?.message ?: "").take(200)
+            }
+        }
+        exoPlayer.addListener(listener)
+        onDispose { exoPlayer.removeListener(listener) }
+    }
 
     LaunchedEffect(video.videoUrl) {
         streamLoading = true
@@ -727,7 +736,7 @@ fun PlayerScreen(
             exoPlayer.prepare()
             exoPlayer.playWhenReady = true
         } catch (e: Exception) {
-            streamError = "Impossible de lire cette vidéo."
+            streamError = "Extraction : " + (e.message ?: e.toString()).take(300)
         }
         streamLoading = false
     }
@@ -803,7 +812,8 @@ fun PlayerScreen(
                 Text(
                     text = it,
                     color = Color(0xFFFF8080),
-                    modifier = Modifier.align(Alignment.Center)
+                    fontSize = 11.sp,
+                    modifier = Modifier.align(Alignment.Center).padding(8.dp)
                 )
             }
         }
