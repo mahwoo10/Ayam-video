@@ -710,13 +710,26 @@ fun PlayerScreen(
     
     var downloadState by remember { mutableStateOf(if(isDownloaded) "Téléchargé" else "Télécharger") }
 
-    val exoPlayer = remember {
-        ExoPlayer.Builder(context).build().apply {
-            val mediaItem = MediaItem.fromUri(Uri.parse(video.videoUrl))
-            setMediaItem(mediaItem)
-            prepare()
-            playWhenReady = true
+    val exoPlayer = remember { ExoPlayer.Builder(context).build() }
+    var streamLoading by remember { mutableStateOf(true) }
+    var streamError by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(video.videoUrl) {
+        streamLoading = true
+        streamError = null
+        try {
+            val playUrl = if (video.videoUrl.endsWith(".mp4")) {
+                video.videoUrl
+            } else {
+                VideoEngine.resolveStream(context, video.videoUrl)
+            }
+            exoPlayer.setMediaItem(MediaItem.fromUri(Uri.parse(playUrl)))
+            exoPlayer.prepare()
+            exoPlayer.playWhenReady = true
+        } catch (e: Exception) {
+            streamError = "Impossible de lire cette vidéo."
         }
+        streamLoading = false
     }
 
     DisposableEffect(Unit) {
@@ -780,6 +793,19 @@ fun PlayerScreen(
                 },
                 modifier = Modifier.fillMaxSize()
             )
+            if (streamLoading) {
+                CircularProgressIndicator(
+                    color = Color(0xFFE0AAFF),
+                    modifier = Modifier.align(Alignment.Center)
+                )
+            }
+            streamError?.let {
+                Text(
+                    text = it,
+                    color = Color(0xFFFF8080),
+                    modifier = Modifier.align(Alignment.Center)
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
