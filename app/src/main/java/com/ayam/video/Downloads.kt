@@ -2,6 +2,7 @@ package com.ayam.video
 
 import android.content.ContentValues
 import android.content.Context
+import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -13,6 +14,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.io.OutputStream
 import java.net.HttpURLConnection
@@ -25,6 +28,57 @@ fun downloadLabel(done: Boolean, p: Float?): String = when {
     else -> "${(p * 100).toInt()} %"
 }
 
+object Library {
+
+    private var prefs: SharedPreferences? = null
+
+    fun init(context: Context) {
+        if (prefs == null) {
+            prefs = context.applicationContext
+                .getSharedPreferences("ayam_library", Context.MODE_PRIVATE)
+        }
+    }
+
+    fun load(key: String): List<VideoItem> {
+        val raw = prefs?.getString(key, null) ?: return emptyList()
+        return try {
+            val arr = JSONArray(raw)
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                VideoItem(
+                    id = o.getString("id"),
+                    title = o.optString("title"),
+                    details = o.optString("details"),
+                    source = o.optString("source"),
+                    videoUrl = o.optString("videoUrl"),
+                    thumbnailUrl = o.optString("thumbnailUrl"),
+                    localUri = o.optString("localUri")
+                )
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    fun save(key: String, list: List<VideoItem>) {
+        val arr = JSONArray()
+        list.forEach { v ->
+            arr.put(
+                JSONObject().apply {
+                    put("id", v.id)
+                    put("title", v.title)
+                    put("details", v.details)
+                    put("source", v.source)
+                    put("videoUrl", v.videoUrl)
+                    put("thumbnailUrl", v.thumbnailUrl)
+                    put("localUri", v.localUri)
+                }
+            )
+        }
+        prefs?.edit()?.putString(key, arr.toString())?.apply()
+    }
+}
+
 object DownloadHolder {
 
     val progress = mutableStateMapOf<String, Float>()
@@ -35,7 +89,7 @@ object DownloadHolder {
         return p == null || p < 0f
     }
 
-    fun start(context: Context, video: VideoItem, onDone: () -> Unit) {
+    fun start(context: Context, video: VideoItem, onDone: (String) -> Unit) {
         if (!canStart(video.id)) return
         val app = context.applicationContext
         progress[video.id] = 0f
@@ -45,11 +99,11 @@ object DownloadHolder {
                 if (streamUrl.contains(".m3u8") || streamUrl.contains("manifest")) {
                     throw IllegalStateException("Format non téléchargeable pour cette vidéo")
                 }
-                saveToDownloads(app, safeName(video.title) + ".mp4", streamUrl) { p ->
+                val localUri = saveToDownloads(app, safeName(video.title) + ".mp4", streamUrl) { p ->
                     progress[video.id] = p
                 }
                 withContext(Dispatchers.Main) {
-                    onDone()
+                    onDone(localUri)
                     progress.remove(video.id)
                     Toast.makeText(
                         app,
@@ -78,10 +132,11 @@ object DownloadHolder {
         name: String,
         url: String,
         onProgress: (Float) -> Unit
-    ) {
+    ): String {
         val resolver = context.contentResolver
         var pendingUri: Uri? = null
         val out: OutputStream
+        val resultUri: String
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val values = ContentValues().apply {
@@ -98,10 +153,13 @@ object DownloadHolder {
             pendingUri = uri
             out = resolver.openOutputStream(uri)
                 ?: throw IllegalStateException("Écriture du fichier impossible")
+            resultUri = uri.toString()
         } else {
             val dir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
                 ?: context.filesDir
-            out = File(dir, name).outputStream()
+            val file = File(dir, name)
+            out = file.outputStream()
+            resultUri = Uri.fromFile(file).toString()
         }
 
         try {
@@ -116,6 +174,7 @@ object DownloadHolder {
             if (pendingUri != null) resolver.delete(pendingUri, null, null)
             throw e
         }
+        return resultUri
     }
 
     private fun copyInChunks(url: String, out: OutputStream, onProgress: (Float) -> Unit) {
