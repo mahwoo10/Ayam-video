@@ -717,6 +717,19 @@ fun PlayerScreen(
 
     var streamLoading by remember { mutableStateOf(true) }
     var streamError by remember { mutableStateOf<String?>(null) }
+    var showQuality by remember { mutableStateOf(false) }
+    if (showQuality) {
+        QualityDialog(
+            video = video,
+            onDismiss = { showQuality = false },
+            onPick = { option ->
+                showQuality = false
+                DownloadHolder.start(context, video, option) { uri ->
+                    viewModel.downloadVideo(video, uri)
+                }
+            }
+        )
+    }
     val exoPlayer = remember { ExoPlayer.Builder(context).build() }
     DisposableEffect(exoPlayer) {
         val listener = object : androidx.media3.common.Player.Listener {
@@ -850,7 +863,7 @@ fun PlayerScreen(
             Surface(
                 onClick = {
                     if (!isDownloaded && DownloadHolder.canStart(video.id)) {
-                        DownloadHolder.start(context, video) { uri -> viewModel.downloadVideo(video, uri) }
+                        showQuality = true
                     }
                 },
                 shape = RoundedCornerShape(12.dp),

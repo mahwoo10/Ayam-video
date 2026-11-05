@@ -8,6 +8,18 @@ import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.search.SearchInfo
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
+import java.net.HttpURLConnection
+import java.net.URL
+
+data class QualityOption(
+    val label: String,
+    val tag: String,
+    val url: String,
+    val ext: String,
+    val mime: String,
+    val sizeBytes: Long,
+    val isAudio: Boolean
+)
 
 object VideoEngine {
 
@@ -71,6 +83,103 @@ object VideoEngine {
             if (!hls.isNullOrBlank()) return@withContext hls
             throw IllegalStateException("Aucun flux lisible trouvé")
         }
+
+    suspend fun listQualities(context: Context, videoUrl: String): List<QualityOption> =
+        withContext(Dispatchers.IO) {
+            if (videoUrl.endsWith(".mp4")) {
+                val size = contentSize(videoUrl)
+                return@withContext listOf(
+                    QualityOption(
+                        label = "Qualité d'origine • MP4 • ${formatSize(size)}",
+                        tag = "original",
+                        url = videoUrl,
+                        ext = "mp4",
+                        mime = "video/mp4",
+                        sizeBytes = size,
+                        isAudio = false
+                    )
+                )
+            }
+
+            ensureInit()
+            val info = StreamInfo.getInfo(ServiceList.YouTube, videoUrl)
+            val result = mutableListOf<QualityOption>()
+
+            val muxed = info.videoStreams
+                .filter { it.isUrl && it.content.isNotBlank() }
+                .filter { (it.format?.suffix ?: "") in listOf("mp4", "webm") }
+                .sortedByDescending {
+                    height(it.resolution) * 10 + (if (it.format?.suffix == "mp4") 1 else 0)
+                }
+                .distinctBy { height(it.resolution) }
+
+            for (s in muxed) {
+                val ext = s.format?.suffix ?: "mp4"
+                val size = contentSize(s.content)
+                val res = s.resolution ?: ""
+                result.add(
+                    QualityOption(
+                        label = "$res • ${ext.uppercase()} • ${formatSize(size)}",
+                        tag = res,
+                        url = s.content,
+                        ext = ext,
+                        mime = s.format?.mimeType ?: "video/mp4",
+                        sizeBytes = size,
+                        isAudio = false
+                    )
+                )
+            }
+
+            val audio = info.audioStreams
+                .filter { it.isUrl && it.content.isNotBlank() && it.format?.suffix == "m4a" }
+                .maxByOrNull { it.averageBitrate }
+            if (audio != null) {
+                val size = contentSize(audio.content)
+                result.add(
+                    QualityOption(
+                        label = "Audio seulement • M4A • ${formatSize(size)}",
+                        tag = "audio",
+                        url = audio.content,
+                        ext = "m4a",
+                        mime = audio.format?.mimeType ?: "audio/mp4",
+                        sizeBytes = size,
+                        isAudio = true
+                    )
+                )
+            }
+
+            if (result.isEmpty()) {
+                throw IllegalStateException("Aucune qualité téléchargeable trouvée")
+            }
+            result
+        }
+
+    private fun contentSize(url: String): Long {
+        return try {
+            val conn = URL(url).openConnection() as HttpURLConnection
+            conn.connectTimeout = 10000
+            conn.readTimeout = 10000
+            conn.setRequestProperty("Range", "bytes=0-0")
+            val code = conn.responseCode
+            val size = when (code) {
+                206 -> conn.getHeaderField("Content-Range")
+                    ?.substringAfter("/")?.toLongOrNull() ?: -1L
+                200 -> conn.contentLengthLong
+                else -> -1L
+            }
+            conn.disconnect()
+            size
+        } catch (e: Exception) {
+            -1L
+        }
+    }
+
+    private fun formatSize(bytes: Long): String = when {
+        bytes <= 0 -> "taille inconnue"
+        bytes >= 1_000_000_000 -> "%.2f Go".format(bytes / 1_000_000_000.0)
+        bytes >= 1_000_000 -> "%.1f Mo".format(bytes / 1_000_000.0)
+        else -> "${bytes / 1000} Ko"
+    }
 
     private fun height(resolution: String?): Int =
         resolution?.takeWhile { it.isDigit() }?.toIntOrNull() ?: 0

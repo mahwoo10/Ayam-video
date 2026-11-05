@@ -89,17 +89,19 @@ object DownloadHolder {
         return p == null || p < 0f
     }
 
-    fun start(context: Context, video: VideoItem, onDone: (String) -> Unit) {
+    fun start(
+        context: Context,
+        video: VideoItem,
+        option: QualityOption,
+        onDone: (String) -> Unit
+    ) {
         if (!canStart(video.id)) return
         val app = context.applicationContext
         progress[video.id] = 0f
         scope.launch {
             try {
-                val streamUrl = VideoEngine.resolveStream(app, video.videoUrl)
-                if (streamUrl.contains(".m3u8") || streamUrl.contains("manifest")) {
-                    throw IllegalStateException("Format non téléchargeable pour cette vidéo")
-                }
-                val localUri = saveToDownloads(app, safeName(video.title) + ".mp4", streamUrl) { p ->
+                val fileName = safeName(video.title) + " (" + option.tag + ")." + option.ext
+                val localUri = saveToDownloads(app, fileName, option.mime, option.url) { p ->
                     progress[video.id] = p
                 }
                 withContext(Dispatchers.Main) {
@@ -130,6 +132,7 @@ object DownloadHolder {
     private fun saveToDownloads(
         context: Context,
         name: String,
+        mime: String,
         url: String,
         onProgress: (Float) -> Unit
     ): String {
@@ -141,7 +144,7 @@ object DownloadHolder {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val values = ContentValues().apply {
                 put(MediaStore.Downloads.DISPLAY_NAME, name)
-                put(MediaStore.Downloads.MIME_TYPE, "video/mp4")
+                put(MediaStore.Downloads.MIME_TYPE, mime)
                 put(
                     MediaStore.Downloads.RELATIVE_PATH,
                     Environment.DIRECTORY_DOWNLOADS + "/AyamVideo"
