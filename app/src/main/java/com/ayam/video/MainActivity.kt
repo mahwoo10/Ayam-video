@@ -50,6 +50,7 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Library.init(applicationContext)
         setContent {
             MaterialTheme {
                 Surface(
@@ -74,10 +75,10 @@ class VideoViewModel : ViewModel() {
     var uiState by mutableStateOf<UiState>(UiState.Loading)
         private set
 
-    private val _favoritesList = mutableStateListOf<VideoItem>()
+    private val _favoritesList = mutableStateListOf<VideoItem>().apply { addAll(Library.load("favorites")) }
     val favoritesList: List<VideoItem> get() = _favoritesList
 
-    private val _downloadedList = mutableStateListOf<VideoItem>()
+    private val _downloadedList = mutableStateListOf<VideoItem>().apply { addAll(Library.load("downloads")) }
     val downloadedList: List<VideoItem> get() = _downloadedList
 
     init {
@@ -132,22 +133,25 @@ class VideoViewModel : ViewModel() {
     }
 
     fun toggleFavorite(video: VideoItem) {
-        if (_favoritesList.contains(video)) {
-            _favoritesList.remove(video)
+        val existing = _favoritesList.firstOrNull { it.id == video.id }
+        if (existing != null) {
+            _favoritesList.remove(existing)
         } else {
             _favoritesList.add(video)
         }
+        Library.save("favorites", _favoritesList)
     }
 
-    fun isFavorite(video: VideoItem): Boolean = _favoritesList.contains(video)
+    fun isFavorite(video: VideoItem): Boolean = _favoritesList.any { it.id == video.id }
 
-    fun downloadVideo(video: VideoItem) {
-        if (!_downloadedList.contains(video)) {
-            _downloadedList.add(video)
+    fun downloadVideo(video: VideoItem, localUri: String = "") {
+        if (_downloadedList.none { it.id == video.id }) {
+            _downloadedList.add(video.copy(localUri = localUri))
+            Library.save("downloads", _downloadedList)
         }
     }
 
-    fun isDownloaded(video: VideoItem): Boolean = _downloadedList.contains(video)
+    fun isDownloaded(video: VideoItem): Boolean = _downloadedList.any { it.id == video.id }
 }
 
 data class VideoItem(
@@ -156,7 +160,8 @@ data class VideoItem(
     val details: String, 
     val source: String,
     val videoUrl: String,
-    val thumbnailUrl: String = ""
+    val thumbnailUrl: String = "",
+    val localUri: String = ""
 )
 
 @Composable
@@ -727,7 +732,9 @@ fun PlayerScreen(
         streamLoading = true
         streamError = null
         try {
-            val playUrl = if (video.videoUrl.endsWith(".mp4")) {
+            val playUrl = if (video.localUri.isNotBlank()) {
+                video.localUri
+            } else if (video.videoUrl.endsWith(".mp4")) {
                 video.videoUrl
             } else {
                 VideoEngine.resolveStream(context, video.videoUrl)
@@ -843,7 +850,7 @@ fun PlayerScreen(
             Surface(
                 onClick = {
                     if (!isDownloaded && DownloadHolder.canStart(video.id)) {
-                        DownloadHolder.start(context, video) { viewModel.downloadVideo(video) }
+                        DownloadHolder.start(context, video) { uri -> viewModel.downloadVideo(video, uri) }
                     }
                 },
                 shape = RoundedCornerShape(12.dp),
