@@ -2,6 +2,9 @@ package com.ayam.video
 
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.ServiceList
@@ -18,7 +21,8 @@ data class QualityOption(
     val ext: String,
     val mime: String,
     val sizeBytes: Long,
-    val isAudio: Boolean
+    val isAudio: Boolean,
+    val audioUrl: String = ""
 )
 
 object VideoEngine {
@@ -103,8 +107,9 @@ object VideoEngine {
 
             ensureInit()
             val info = StreamInfo.getInfo(ServiceList.YouTube, videoUrl)
-            val result = mutableListOf<QualityOption>()
+            val raw = mutableListOf<QualityOption>()
 
+            // Flux avec image + son déjà ensemble
             val muxed = info.videoStreams
                 .filter { it.isUrl && it.content.isNotBlank() }
                 .filter { (it.format?.suffix ?: "") in listOf("mp4", "webm") }
@@ -112,46 +117,94 @@ object VideoEngine {
                     height(it.resolution) * 10 + (if (it.format?.suffix == "mp4") 1 else 0)
                 }
                 .distinctBy { height(it.resolution) }
+            val muxedHeights = muxed.map { height(it.resolution) }.toSet()
 
             for (s in muxed) {
                 val ext = s.format?.suffix ?: "mp4"
-                val size = contentSize(s.content)
                 val res = s.resolution ?: ""
-                result.add(
+                raw.add(
                     QualityOption(
-                        label = "$res • ${ext.uppercase()} • ${formatSize(size)}",
+                        label = "$res • ${ext.uppercase()}",
                         tag = res,
                         url = s.content,
                         ext = ext,
                         mime = s.format?.mimeType ?: "video/mp4",
-                        sizeBytes = size,
+                        sizeBytes = -1L,
                         isAudio = false
                     )
                 )
             }
 
+            // Meilleur son M4A (sert aussi pour l'option audio seule et pour l'assemblage HD)
             val audio = info.audioStreams
                 .filter { it.isUrl && it.content.isNotBlank() && it.format?.suffix == "m4a" }
                 .maxByOrNull { it.averageBitrate }
+
+            // Qualités HD : image seule (H.264) + son, assemblés après téléchargement
             if (audio != null) {
-                val size = contentSize(audio.content)
-                result.add(
+                val hd = info.videoOnlyStreams
+                    .filter { it.isUrl && it.content.isNotBlank() }
+                    .filter { it.format?.suffix == "mp4" }
+                    .filter { (it.codec ?: "").startsWith("avc1") }
+                    .filter { height(it.resolution) >= 360 }
+                    .filter { height(it.resolution) !in muxedHeights }
+                    .sortedBy { it.fps }
+                    .distinctBy { height(it.resolution) }
+                for (v in hd) {
+                    val res = v.resolution ?: ""
+                    raw.add(
+                        QualityOption(
+                            label = "$res HD • MP4",
+                            tag = res,
+                            url = v.content,
+                            ext = "mp4",
+                            mime = "video/mp4",
+                            sizeBytes = -1L,
+                            isAudio = false,
+                            audioUrl = audio.content
+                        )
+                    )
+                }
+            }
+
+            val videos = raw.sortedByDescending { height(it.tag) }.toMutableList()
+
+            if (audio != null) {
+                videos.add(
                     QualityOption(
-                        label = "Audio seulement • M4A • ${formatSize(size)}",
+                        label = "Audio seulement • M4A",
                         tag = "audio",
                         url = audio.content,
                         ext = "m4a",
                         mime = audio.format?.mimeType ?: "audio/mp4",
-                        sizeBytes = size,
+                        sizeBytes = -1L,
                         isAudio = true
                     )
                 )
             }
 
-            if (result.isEmpty()) {
+            if (videos.isEmpty()) {
                 throw IllegalStateException("Aucune qualité téléchargeable trouvée")
             }
-            result
+
+            // Tailles calculées en parallèle
+            coroutineScope {
+                videos.map { opt ->
+                    async {
+                        val first = contentSize(opt.url)
+                        val total = if (opt.audioUrl.isNotBlank()) {
+                            val second = contentSize(opt.audioUrl)
+                            if (first > 0 && second > 0) first + second else -1L
+                        } else {
+                            first
+                        }
+                        opt.copy(
+                            sizeBytes = total,
+                            label = opt.label + " • " + formatSize(total)
+                        )
+                    }
+                }.awaitAll()
+            }
         }
 
     private fun contentSize(url: String): Long {

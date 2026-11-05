@@ -3,6 +3,10 @@ package com.ayam.video
 import android.content.ContentValues
 import android.content.Context
 import android.content.SharedPreferences
+import android.media.MediaCodec
+import android.media.MediaExtractor
+import android.media.MediaFormat
+import android.media.MediaMuxer
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -20,6 +24,7 @@ import java.io.File
 import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.nio.ByteBuffer
 
 fun downloadLabel(done: Boolean, p: Float?): String = when {
     done -> "Téléchargé"
@@ -99,11 +104,36 @@ object DownloadHolder {
         val app = context.applicationContext
         progress[video.id] = 0f
         scope.launch {
+            val cache = app.cacheDir
+            val vFile = File(cache, "ayam_" + video.id + "_v.tmp")
+            val aFile = File(cache, "ayam_" + video.id + "_a.tmp")
+            val mFile = File(cache, "ayam_" + video.id + "_m.mp4")
             try {
                 val fileName = safeName(video.title) + " (" + option.tag + ")." + option.ext
-                val localUri = saveToDownloads(app, fileName, option.mime, option.url) { p ->
-                    progress[video.id] = p
+                val localUri: String
+
+                if (option.audioUrl.isBlank()) {
+                    localUri = saveToDownloads(app, fileName, option.mime) { out ->
+                        copyInChunks(option.url, out) { p -> progress[video.id] = p }
+                    }
+                } else {
+                    vFile.outputStream().use { out ->
+                        copyInChunks(option.url, out) { p -> progress[video.id] = p * 0.85f }
+                    }
+                    aFile.outputStream().use { out ->
+                        copyInChunks(option.audioUrl, out) { p ->
+                            progress[video.id] = 0.85f + p * 0.10f
+                        }
+                    }
+                    progress[video.id] = 0.95f
+                    muxToFile(vFile.absolutePath, aFile.absolutePath, mFile.absolutePath)
+                    vFile.delete()
+                    aFile.delete()
+                    localUri = saveToDownloads(app, fileName, option.mime) { out ->
+                        mFile.inputStream().use { it.copyTo(out) }
+                    }
                 }
+
                 withContext(Dispatchers.Main) {
                     onDone(localUri)
                     progress.remove(video.id)
@@ -122,6 +152,10 @@ object DownloadHolder {
                         Toast.LENGTH_LONG
                     ).show()
                 }
+            } finally {
+                vFile.delete()
+                aFile.delete()
+                mFile.delete()
             }
         }
     }
@@ -133,8 +167,7 @@ object DownloadHolder {
         context: Context,
         name: String,
         mime: String,
-        url: String,
-        onProgress: (Float) -> Unit
+        write: (OutputStream) -> Unit
     ): String {
         val resolver = context.contentResolver
         var pendingUri: Uri? = null
@@ -166,7 +199,7 @@ object DownloadHolder {
         }
 
         try {
-            out.use { copyInChunks(url, it, onProgress) }
+            out.use { write(it) }
             if (pendingUri != null) {
                 val done = ContentValues().apply {
                     put(MediaStore.Downloads.IS_PENDING, 0)
@@ -178,6 +211,69 @@ object DownloadHolder {
             throw e
         }
         return resultUri
+    }
+
+    private fun muxToFile(videoPath: String, audioPath: String, outPath: String) {
+        val vEx = MediaExtractor()
+        val aEx = MediaExtractor()
+        var muxer: MediaMuxer? = null
+        try {
+            vEx.setDataSource(videoPath)
+            aEx.setDataSource(audioPath)
+
+            val vTrack = (0 until vEx.trackCount).firstOrNull {
+                vEx.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("video/") == true
+            } ?: throw IllegalStateException("Piste vidéo introuvable")
+            val aTrack = (0 until aEx.trackCount).firstOrNull {
+                aEx.getTrackFormat(it).getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true
+            } ?: throw IllegalStateException("Piste audio introuvable")
+
+            vEx.selectTrack(vTrack)
+            aEx.selectTrack(aTrack)
+
+            muxer = MediaMuxer(outPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            val vIdx = muxer.addTrack(vEx.getTrackFormat(vTrack))
+            val aIdx = muxer.addTrack(aEx.getTrackFormat(aTrack))
+            muxer.start()
+
+            val buf = ByteBuffer.allocate(8 * 1024 * 1024)
+            val info = MediaCodec.BufferInfo()
+            var vDone = false
+            var aDone = false
+
+            while (!(vDone && aDone)) {
+                val vt = if (vDone) Long.MAX_VALUE else vEx.sampleTime
+                val at = if (aDone) Long.MAX_VALUE else aEx.sampleTime
+                if (!vDone && vt < 0) { vDone = true; continue }
+                if (!aDone && at < 0) { aDone = true; continue }
+
+                val useVideo = vt <= at
+                val ex = if (useVideo) vEx else aEx
+                val idx = if (useVideo) vIdx else aIdx
+
+                buf.clear()
+                val size = ex.readSampleData(buf, 0)
+                if (size < 0) {
+                    if (useVideo) vDone = true else aDone = true
+                    continue
+                }
+                info.offset = 0
+                info.size = size
+                info.presentationTimeUs = ex.sampleTime
+                info.flags = if (ex.sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC != 0) {
+                    MediaCodec.BUFFER_FLAG_KEY_FRAME
+                } else {
+                    0
+                }
+                muxer.writeSampleData(idx, buf, info)
+                ex.advance()
+            }
+            muxer.stop()
+        } finally {
+            try { muxer?.release() } catch (e: Exception) { }
+            vEx.release()
+            aEx.release()
+        }
     }
 
     private fun copyInChunks(url: String, out: OutputStream, onProgress: (Float) -> Unit) {
