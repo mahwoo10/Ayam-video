@@ -842,9 +842,8 @@ fun PlayerScreen(
             
             Surface(
                 onClick = {
-                    if (!isDownloaded) {
-                        viewModel.downloadVideo(video)
-                        downloadState = "Téléchargé"
+                    if (!isDownloaded && DownloadHolder.canStart(video.id)) {
+                        DownloadHolder.start(context, video) { viewModel.downloadVideo(video) }
                     }
                 },
                 shape = RoundedCornerShape(12.dp),
@@ -863,7 +862,7 @@ fun PlayerScreen(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = downloadState,
+                        text = downloadLabel(isDownloaded, DownloadHolder.progress[video.id]),
                         color = if (isDownloaded) Color.White else Color(0xFF9A8CB9),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium
