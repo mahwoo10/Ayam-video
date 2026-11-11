@@ -436,8 +436,10 @@ fun LibraryScreen(viewModel: VideoViewModel, onVideoClick: (VideoItem) -> Unit) 
 @Composable
 fun SettingsScreen() {
     val context = LocalContext.current
-    var isDarkTheme by remember { mutableStateOf(true) }
-    var autoPlay by remember { mutableStateOf(true) }
+    val prefs = remember { context.getSharedPreferences("ayam_settings", Context.MODE_PRIVATE) }
+    
+    var isDarkTheme by remember { mutableStateOf(prefs.getBoolean("dark_theme", true)) }
+    var autoPlay by remember { mutableStateOf(prefs.getBoolean("autoplay", true)) }
 
     Column(
         modifier = Modifier
@@ -457,7 +459,15 @@ fun SettingsScreen() {
         SettingsSectionTitle("Apparence")
         Spacer(modifier = Modifier.height(8.dp))
         SettingsStaticItem(title = "Thème de l'application", subtitle = "Saphir & Améthyste (Actif)")
-        SettingsToggleItem(title = "Mode sombre automatique", checked = isDarkTheme, onCheckedChange = { isDarkTheme = it })
+        SettingsToggleItem(
+            title = "Mode sombre automatique", 
+            checked = isDarkTheme, 
+            onCheckedChange = { 
+                isDarkTheme = it
+                prefs.edit().putBoolean("dark_theme", it).apply()
+                Toast.makeText(context, if(it) "Mode sombre activé" else "Mode sombre désactivé", Toast.LENGTH_SHORT).show()
+            }
+        )
 
         Spacer(modifier = Modifier.height(24.dp))
 
@@ -466,7 +476,15 @@ fun SettingsScreen() {
         SettingsActionItem(title = "Effacer le cache vidéo", subtitle = "12.4 Mo utilisés", onClick = {
             Toast.makeText(context, "Cache nettoyé avec succès", Toast.LENGTH_SHORT).show()
         })
-        SettingsToggleItem(title = "Lecture automatique", checked = autoPlay, onCheckedChange = { autoPlay = it })
+        SettingsToggleItem(
+            title = "Lecture automatique", 
+            checked = autoPlay, 
+            onCheckedChange = { 
+                autoPlay = it
+                prefs.edit().putBoolean("autoplay", it).apply()
+                Toast.makeText(context, if(it) "Lecture automatique activée" else "Lecture automatique désactivée", Toast.LENGTH_SHORT).show()
+            }
+        )
 
         Spacer(modifier = Modifier.height(24.dp))
 
@@ -636,6 +654,7 @@ fun PlayerScreen(
     val isFavorite = viewModel.isFavorite(video)
     val isDownloaded = viewModel.isDownloaded(video)
     
+    var isFullscreen by remember { mutableStateOf(false) }
     var streamLoading by remember { mutableStateOf(true) }
     var streamError by remember { mutableStateOf<String?>(null) }
     var showQuality by remember { mutableStateOf(false) }
@@ -693,37 +712,54 @@ fun PlayerScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF090412))
-            .padding(16.dp)
+            .padding(if (isFullscreen) 0.dp else 16.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.Default.ArrowBack, contentDescription = "Retour", tint = Color(0xFFE0AAFF))
+        if (!isFullscreen) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Retour", tint = Color(0xFFE0AAFF))
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Lecture en cours", color = Color(0xFFE0AAFF), fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 }
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Lecture en cours", color = Color(0xFFE0AAFF), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { isFullscreen = true }) {
+                        Text("[ ]", color = Color(0xFFE0AAFF), fontWeight = FontWeight.Bold)
+                    }
+                    IconButton(onClick = { viewModel.toggleFavorite(video) }) {
+                        Icon(if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, contentDescription = "Favori", tint = Color(0xFFE0AAFF))
+                    }
+                }
             }
-            
-            IconButton(onClick = { viewModel.toggleFavorite(video) }) {
-                Icon(if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, contentDescription = "Favori", tint = Color(0xFFE0AAFF))
-            }
+            Spacer(modifier = Modifier.height(16.dp))
         }
-        Spacer(modifier = Modifier.height(16.dp))
 
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(220.dp)
-                .background(Color.Black, shape = RoundedCornerShape(12.dp))
+                .weight(if (isFullscreen) 1f else 0f)
+                .height(if (isFullscreen) Dp.Unspecified else 220.dp)
+                .background(Color.Black, shape = if(isFullscreen) RoundedCornerShape(0.dp) else RoundedCornerShape(12.dp))
         ) {
             AndroidView(
                 factory = { ctx -> PlayerView(ctx).apply { player = exoPlayer } },
                 modifier = Modifier.fillMaxSize()
             )
+            
+            if (isFullscreen) {
+                IconButton(
+                    onClick = { isFullscreen = false },
+                    modifier = Modifier.align(Alignment.TopEnd).padding(16.dp).background(Color(0x88000000), shape = RoundedCornerShape(50))
+                ) {
+                    Text("✕", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            }
 
             if (streamLoading) {
                 CircularProgressIndicator(color = Color(0xFFE0AAFF), modifier = Modifier.align(Alignment.Center))
@@ -733,51 +769,53 @@ fun PlayerScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Top
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(text = video.title, color = Color(0xFFE0AAFF), fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = video.details, 
-                    color = Color(0xFF9A8CB9), 
-                    fontSize = 14.sp,
-                    lineHeight = 20.sp,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-            
-            Surface(
-                onClick = {
-                    if (!isDownloaded && DownloadHolder.canStart(video.id)) {
-                        showQuality = true
-                    }
-                },
-                shape = RoundedCornerShape(12.dp),
-                color = if (isDownloaded) Color(0xFF2E1A47) else Color(0xFF130826),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3B2859)),
-                modifier = Modifier.padding(start = 12.dp)
+        if (!isFullscreen) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                ) {
-                    Icon(
-                        imageVector = if (isDownloaded) Icons.Default.Check else Icons.Default.Add,
-                        contentDescription = "Télécharger",
-                        tint = if (isDownloaded) Color(0xFFE0AAFF) else Color(0xFF7A6B9C)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(text = video.title, color = Color(0xFFE0AAFF), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = downloadLabel(isDownloaded, DownloadHolder.progress[video.id]),
-                        color = if (isDownloaded) Color.White else Color(0xFF9A8CB9),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium
+                        text = video.details, 
+                        color = Color(0xFF9A8CB9), 
+                        fontSize = 14.sp,
+                        lineHeight = 20.sp,
+                        modifier = Modifier.fillMaxWidth()
                     )
+                }
+                
+                Surface(
+                    onClick = {
+                        if (!isDownloaded && DownloadHolder.canStart(video.id)) {
+                            showQuality = true
+                        }
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (isDownloaded) Color(0xFF2E1A47) else Color(0xFF130826),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3B2859)),
+                    modifier = Modifier.padding(start = 12.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isDownloaded) Icons.Default.Check else Icons.Default.Add,
+                            contentDescription = "Télécharger",
+                            tint = if (isDownloaded) Color(0xFFE0AAFF) else Color(0xFF7A6B9C)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = downloadLabel(isDownloaded, DownloadHolder.progress[video.id]),
+                            color = if (isDownloaded) Color.White else Color(0xFF9A8CB9),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
                 }
             }
         }
