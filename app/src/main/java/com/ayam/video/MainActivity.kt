@@ -671,18 +671,40 @@ fun PlayerScreen(
             }
         )
     }
-    val exoPlayer = remember { ExoPlayer.Builder(context).build() }
-    DisposableEffect(exoPlayer) {
-        val listener = object : androidx.media3.common.Player.Listener {
-            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                streamError = "Lecteur : " + error.errorCodeName + " " + (error.cause?.message ?: "").take(200)
-            }
+
+    val exoPlayer = remember(context) {
+        try {
+            ExoPlayer.Builder(context).build()
+        } catch (e: Exception) {
+            null
         }
-        exoPlayer.addListener(listener)
-        onDispose { exoPlayer.removeListener(listener) }
     }
 
-    LaunchedEffect(video.videoUrl) {
+    DisposableEffect(exoPlayer) {
+        if (exoPlayer != null) {
+            val listener = object : androidx.media3.common.Player.Listener {
+                override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                    streamError = "Erreur de lecture : " + (error.cause?.message ?: error.errorCodeName).take(150)
+                }
+            }
+            exoPlayer.addListener(listener)
+            onDispose { 
+                try {
+                    exoPlayer.removeListener(listener)
+                    exoPlayer.release()
+                } catch (ignored: Exception) {}
+            }
+        } else {
+            onDispose {}
+        }
+    }
+
+    LaunchedEffect(video.videoUrl, exoPlayer) {
+        if (exoPlayer == null) {
+            streamError = "Impossible d'initialiser le lecteur vidéo."
+            streamLoading = false
+            return@LaunchedEffect
+        }
         streamLoading = true
         streamError = null
         try {
@@ -693,19 +715,17 @@ fun PlayerScreen(
             } else {
                 VideoEngine.resolveStream(context, video.videoUrl)
             }
-            exoPlayer.setMediaItem(MediaItem.fromUri(Uri.parse(playUrl)))
-            exoPlayer.prepare()
-            exoPlayer.playWhenReady = true
+            if (playUrl.isNotBlank()) {
+                exoPlayer.setMediaItem(MediaItem.fromUri(Uri.parse(playUrl)))
+                exoPlayer.prepare()
+                exoPlayer.playWhenReady = true
+            } else {
+                streamError = "Lien vidéo introuvable."
+            }
         } catch (e: Exception) {
-            streamError = "Extraction : " + (e.message ?: e.toString()).take(300)
+            streamError = "Erreur réseau ou format non supporté."
         }
         streamLoading = false
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            exoPlayer.release()
-        }
     }
 
     Column(
@@ -729,8 +749,10 @@ fun PlayerScreen(
                 }
                 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { isFullscreen = true }) {
-                        Text("[ ]", color = Color(0xFFE0AAFF), fontWeight = FontWeight.Bold)
+                    if (exoPlayer != null) {
+                        IconButton(onClick = { isFullscreen = !isFullscreen }) {
+                            Text(if (isFullscreen) "[ 🗗 ]" else "[ 🗖 ]", color = Color(0xFFE0AAFF), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
                     }
                     IconButton(onClick = { viewModel.toggleFavorite(video) }) {
                         Icon(if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, contentDescription = "Favori", tint = Color(0xFFE0AAFF))
@@ -747,15 +769,26 @@ fun PlayerScreen(
                 .height(if (isFullscreen) Dp.Unspecified else 220.dp)
                 .background(Color.Black, shape = if(isFullscreen) RoundedCornerShape(0.dp) else RoundedCornerShape(12.dp))
         ) {
-            AndroidView(
-                factory = { ctx -> PlayerView(ctx).apply { player = exoPlayer } },
-                modifier = Modifier.fillMaxSize()
-            )
+            if (exoPlayer != null) {
+                AndroidView(
+                    factory = { ctx ->
+                        PlayerView(ctx).apply {
+                            player = exoPlayer
+                            useController = true
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("Lecteur indisponible", color = Color.White)
+                }
+            }
             
             if (isFullscreen) {
                 IconButton(
                     onClick = { isFullscreen = false },
-                    modifier = Modifier.align(Alignment.TopEnd).padding(16.dp).background(Color(0x88000000), shape = RoundedCornerShape(50))
+                    modifier = Modifier.align(Alignment.TopEnd).padding(16.dp).background(Color(0xAA130826), shape = RoundedCornerShape(50))
                 ) {
                     Text("✕", color = Color.White, fontWeight = FontWeight.Bold)
                 }
@@ -764,8 +797,28 @@ fun PlayerScreen(
             if (streamLoading) {
                 CircularProgressIndicator(color = Color(0xFFE0AAFF), modifier = Modifier.align(Alignment.Center))
             }
-            streamError?.let {
-                Text(text = it, color = Color(0xFFFF8080), fontSize = 11.sp, modifier = Modifier.align(Alignment.Center).padding(8.dp))
+            streamError?.let { err ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0xEE090412)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(16.dp)) {
+                        Text(text = err, color = Color(0xFFFF8080), fontSize = 13.sp, textAlign = TextAlign.Center)
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Button(
+                            onClick = { 
+                                streamError = null
+                                streamLoading = true
+                                exoPlayer?.prepare()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E1A47))
+                        ) {
+                            Text("Réessayer", color = Color(0xFFE0AAFF))
+                        }
+                    }
+                }
             }
         }
 
@@ -799,7 +852,7 @@ fun PlayerScreen(
                     border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3B2859)),
                     modifier = Modifier.padding(start = 12.dp)
                 ) {
-                    Row(
+                    `Row`(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                     ) {
