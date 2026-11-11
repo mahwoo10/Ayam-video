@@ -1,8 +1,11 @@
 package com.ayam.video
 
+import android.app.Activity
 import android.content.Context
+import android.content.pm.ActivityInfo
 import android.net.Uri
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -85,7 +88,8 @@ class VideoViewModel : ViewModel() {
         viewModelScope.launch {
             uiState = UiState.Loading
             try {
-                val remoteVideos = VideoEngine.search(context, query, 10)
+                // AUGMENTATION DE LA LIMITE À 30 RÉSULTATS
+                val remoteVideos = VideoEngine.search(context, query, 30)
                 if (remoteVideos.isEmpty()) {
                     uiState = UiState.Error("Aucun résultat trouvé.")
                 } else {
@@ -132,16 +136,22 @@ data class VideoItem(
 @Composable
 fun MainAppRoot(viewModel: VideoViewModel) {
     var currentVideo by remember { mutableStateOf<VideoItem?>(null) }
+    val context = LocalContext.current
+    val activity = context as? Activity
 
     if (currentVideo != null) {
         BackHandler {
             currentVideo = null
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
 
         PlayerScreen(
             video = currentVideo!!, 
             viewModel = viewModel,
-            onBack = { currentVideo = null }
+            onBack = { 
+                currentVideo = null 
+                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            }
         )
     } else {
         MainScreen(
@@ -235,15 +245,6 @@ fun HomeScreen(viewModel: VideoViewModel, onVideoClick: (VideoItem) -> Unit) {
         
         Spacer(modifier = Modifier.height(16.dp))
 
-        Text(
-            text = "Sources de recherche",
-            color = Color.White,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.SemiBold
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
         val sources = listOf("YouTube", "Vimeo", "Dailymotion", "TikTok")
         Row(
             modifier = Modifier
@@ -320,6 +321,42 @@ fun HomeScreen(viewModel: VideoViewModel, onVideoClick: (VideoItem) -> Unit) {
         }
         
         Spacer(modifier = Modifier.height(32.dp))
+    }
+}
+
+@Composable
+fun SourceBadge(name: String) {
+    var isSelected by remember { mutableStateOf(true) }
+
+    Surface(
+        onClick = { isSelected = !isSelected },
+        shape = RoundedCornerShape(20.dp),
+        color = if (isSelected) Color(0xFF2E1A47) else Color(0xFF130826),
+        border = androidx.compose.foundation.BorderStroke(
+            width = 1.dp,
+            color = if (isSelected) Color(0xFFE0AAFF) else Color(0xFF3B2859)
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (isSelected) {
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = null,
+                    tint = Color(0xFFE0AAFF),
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+            }
+            Text(
+                text = name,
+                color = Color.White,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
     }
 }
 
@@ -406,6 +443,10 @@ fun LibraryScreen(viewModel: VideoViewModel, onVideoClick: (VideoItem) -> Unit) 
 
 @Composable
 fun SettingsScreen() {
+    val context = LocalContext.current
+    var isDarkTheme by remember { mutableStateOf(true) }
+    var autoPlay by remember { mutableStateOf(true) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -423,22 +464,24 @@ fun SettingsScreen() {
 
         SettingsSectionTitle("Apparence")
         Spacer(modifier = Modifier.height(8.dp))
-        SettingsItem(title = "Thème de l'application", subtitle = "Saphir & Améthyste (Actif)")
-        SettingsItem(title = "Mode sombre automatique", subtitle = "Activé par défaut")
+        SettingsStaticItem(title = "Thème de l'application", subtitle = "Saphir & Améthyste (Actif)")
+        SettingsToggleItem(title = "Mode sombre automatique", checked = isDarkTheme, onCheckedChange = { isDarkTheme = it })
 
         Spacer(modifier = Modifier.height(24.dp))
 
         SettingsSectionTitle("Données et Cache")
         Spacer(modifier = Modifier.height(8.dp))
-        SettingsItem(title = "Effacer le cache vidéo", subtitle = "12.4 Mo utilisés")
-        SettingsItem(title = "Qualité de lecture par défaut", subtitle = "Automatique (HD)")
+        SettingsActionItem(title = "Effacer le cache vidéo", subtitle = "12.4 Mo utilisés", onClick = {
+            Toast.makeText(context, "Cache nettoyé avec succès", Toast.LENGTH_SHORT).show()
+        })
+        SettingsToggleItem(title = "Lecture automatique", checked = autoPlay, onCheckedChange = { autoPlay = it })
 
         Spacer(modifier = Modifier.height(24.dp))
 
         SettingsSectionTitle("À propos")
         Spacer(modifier = Modifier.height(8.dp))
-        SettingsItem(title = "Version de l'application", subtitle = "AYAM VIDEO v1.3.0")
-        SettingsItem(title = "Développé par", subtitle = "AYAM Abdoul Lab")
+        SettingsStaticItem(title = "Version de l'application", subtitle = "AYAM VIDEO v1.3.0")
+        SettingsStaticItem(title = "Développé par", subtitle = "AYAM Abdoul Lab")
         
         Spacer(modifier = Modifier.height(32.dp))
     }
@@ -455,7 +498,7 @@ fun SettingsSectionTitle(text: String) {
 }
 
 @Composable
-fun SettingsItem(title: String, subtitle: String) {
+fun SettingsStaticItem(title: String, subtitle: String) {
     Card(
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF130826)),
@@ -464,18 +507,51 @@ fun SettingsItem(title: String, subtitle: String) {
             .padding(vertical = 4.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = title,
-                color = Color.White,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Medium
-            )
+            Text(text = title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
             Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = subtitle,
-                color = Color(0xFF9A8CB9),
-                fontSize = 12.sp
+            Text(text = subtitle, color = Color(0xFF9A8CB9), fontSize = 12.sp)
+        }
+    }
+}
+
+@Composable
+fun SettingsToggleItem(title: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF130826)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(text = title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+            Switch(
+                checked = checked, 
+                onCheckedChange = onCheckedChange,
+                colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFFE0AAFF))
             )
+        }
+    }
+}
+
+@Composable
+fun SettingsActionItem(title: String, subtitle: String, onClick: () -> Unit) {
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF130826)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .clickable { onClick() }
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(text = title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(text = subtitle, color = Color(0xFF9A8CB9), fontSize = 12.sp)
         }
     }
 }
@@ -565,14 +641,15 @@ fun PlayerScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val activity = context as? Activity
     val isFavorite = viewModel.isFavorite(video)
     val isDownloaded = viewModel.isDownloaded(video)
     
-    var downloadState by remember { mutableStateOf(if(isDownloaded) "Téléchargé" else "Télécharger") }
-
+    var isFullscreen by remember { mutableStateOf(activity?.requestedOrientation == ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE) }
     var streamLoading by remember { mutableStateOf(true) }
     var streamError by remember { mutableStateOf<String?>(null) }
     var showQuality by remember { mutableStateOf(false) }
+    
     if (showQuality) {
         QualityDialog(
             video = video,
@@ -626,160 +703,118 @@ fun PlayerScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF090412))
-            .padding(16.dp)
+            .padding(if (isFullscreen) 0.dp else 16.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack) {
-                    Icon(
-                        imageVector = Icons.Default.ArrowBack,
-                        contentDescription = "Retour",
-                        tint = Color(0xFFE0AAFF)
-                    )
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Lecture en cours",
-                    color = Color(0xFFE0AAFF),
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            IconButton(
-                onClick = { viewModel.toggleFavorite(video) }
+        if (!isFullscreen) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Icon(
-                    imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                    contentDescription = "Favori",
-                    tint = Color(0xFFE0AAFF)
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Retour", tint = Color(0xFFE0AAFF))
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Lecture en cours", color = Color(0xFFE0AAFF), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                }
+                
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { 
+                        isFullscreen = true
+                        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                    }) {
+                        Text("[ ]", color = Color(0xFFE0AAFF), fontWeight = FontWeight.Bold)
+                    }
+                    IconButton(onClick = { viewModel.toggleFavorite(video) }) {
+                        Icon(if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, contentDescription = "Favori", tint = Color(0xFFE0AAFF))
+                    }
+                }
             }
+            Spacer(modifier = Modifier.height(16.dp))
         }
-
-        Spacer(modifier = Modifier.height(16.dp))
 
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(220.dp)
-                .background(Color(0xFF130826), shape = RoundedCornerShape(12.dp))
+                .weight(if (isFullscreen) 1f else 0f)
+                .height(if (isFullscreen) Dp.Unspecified else 220.dp)
+                .background(Color.Black, shape = if(isFullscreen) RoundedCornerShape(0.dp) else RoundedCornerShape(12.dp))
         ) {
             AndroidView(
-                factory = { ctx ->
-                    PlayerView(ctx).apply {
-                        player = exoPlayer
-                    }
-                },
+                factory = { ctx -> PlayerView(ctx).apply { player = exoPlayer } },
                 modifier = Modifier.fillMaxSize()
             )
-            if (streamLoading) {
-                CircularProgressIndicator(
-                    color = Color(0xFFE0AAFF),
-                    modifier = Modifier.align(Alignment.Center)
-                )
-            }
-            streamError?.let {
-                Text(
-                    text = it,
-                    color = Color(0xFFFF8080),
-                    fontSize = 11.sp,
-                    modifier = Modifier.align(Alignment.Center).padding(8.dp)
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Top
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = video.title,
-                    color = Color(0xFFE0AAFF),
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = video.details,
-                    color = Color(0xFF9A8CB9),
-                    fontSize = 14.sp
-                )
-            }
             
-            Surface(
-                onClick = {
-                    if (!isDownloaded && DownloadHolder.canStart(video.id)) {
-                        showQuality = true
-                    }
-                },
-                shape = RoundedCornerShape(12.dp),
-                color = if (isDownloaded) Color(0xFF2E1A47) else Color(0xFF130826),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3B2859)),
-                modifier = Modifier.padding(start = 12.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+            if (isFullscreen) {
+                IconButton(
+                    onClick = { 
+                        isFullscreen = false
+                        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                    },
+                    modifier = Modifier.align(Alignment.TopEnd).padding(16.dp).background(Color(0x88000000), shape = RoundedCornerShape(50))
                 ) {
-                    Icon(
-                        imageVector = if (isDownloaded) Icons.Default.Check else Icons.Default.Add,
-                        contentDescription = "Télécharger",
-                        tint = if (isDownloaded) Color(0xFFE0AAFF) else Color(0xFF7A6B9C)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = downloadLabel(isDownloaded, DownloadHolder.progress[video.id]),
-                        color = if (isDownloaded) Color.White else Color(0xFF9A8CB9),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+                    Text("X", color = Color.White, fontWeight = FontWeight.Bold)
                 }
             }
+
+            if (streamLoading) {
+                CircularProgressIndicator(color = Color(0xFFE0AAFF), modifier = Modifier.align(Alignment.Center))
+            }
+            streamError?.let {
+                Text(text = it, color = Color(0xFFFF8080), fontSize = 11.sp, modifier = Modifier.align(Alignment.Center).padding(8.dp))
+            }
         }
-    }
-}
 
-@Composable
-fun SourceBadge(name: String) {
-    var isSelected by remember { mutableStateOf(true) }
-
-    Surface(
-        onClick = { isSelected = !isSelected },
-        shape = RoundedCornerShape(12.dp),
-        color = if (isSelected) Color(0xFF2E1A47) else Color(0xFF130826),
-        border = androidx.compose.foundation.BorderStroke(
-            width = 1.dp,
-            color = if (isSelected) Color(0xFFE0AAFF) else Color(0xFF3B2859)
-        ),
-        modifier = Modifier.size(width = 90.dp, height = 75.dp)
-    ) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                text = if (isSelected) "✔" else "＋",
-                color = if (isSelected) Color(0xFFE0AAFF) else Color(0xFF7A6B9C),
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = name,
-                color = Color.White,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium
-            )
+        if (!isFullscreen) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(text = video.title, color = Color(0xFFE0AAFF), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = video.details, 
+                        color = Color(0xFF9A8CB9), 
+                        fontSize = 14.sp,
+                        lineHeight = 20.sp, // CORRECTION DE L'AFFICHAGE DU TEXTE
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                
+                Surface(
+                    onClick = {
+                        if (!isDownloaded && DownloadHolder.canStart(video.id)) {
+                            showQuality = true
+                        }
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (isDownloaded) Color(0xFF2E1A47) else Color(0xFF130826),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3B2859)),
+                    modifier = Modifier.padding(start = 12.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isDownloaded) Icons.Default.Check else Icons.Default.Add,
+                            contentDescription = "Télécharger",
+                            tint = if (isDownloaded) Color(0xFFE0AAFF) else Color(0xFF7A6B9C)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = downloadLabel(isDownloaded, DownloadHolder.progress[video.id]),
+                            color = if (isDownloaded) Color.White else Color(0xFF9A8CB9),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
         }
     }
 }

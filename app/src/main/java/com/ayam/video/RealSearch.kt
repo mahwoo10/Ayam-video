@@ -46,7 +46,8 @@ fun RealSearchScreen(onVideoClick: (VideoItem) -> Unit) {
         SearchHolder.searched = true
         scope.launch {
             try {
-                SearchHolder.results = VideoEngine.search(context, q)
+                // AUGMENTATION DE LA LIMITE À 30 RÉSULTATS POUR LA RECHERCHE
+                SearchHolder.results = VideoEngine.search(context, q, 30)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
