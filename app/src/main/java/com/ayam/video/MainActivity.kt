@@ -1,5 +1,6 @@
 package com.ayam.video
 
+import android.content.Context
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -44,7 +45,6 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -81,51 +81,16 @@ class VideoViewModel : ViewModel() {
     private val _downloadedList = mutableStateListOf<VideoItem>().apply { addAll(Library.load("downloads")) }
     val downloadedList: List<VideoItem> get() = _downloadedList
 
-    init {
-        fetchDynamicVideos()
-    }
-
-    fun fetchDynamicVideos() {
+    fun fetchDynamicVideos(context: Context, query: String = "tendance musique") {
         viewModelScope.launch {
             uiState = UiState.Loading
             try {
-                delay(1500)
-                
-                val remoteVideos = listOf(
-                    VideoItem(
-                        id = "vid_1",
-                        title = "Big Buck Bunny (Animation Test)", 
-                        details = "Blender Foundation • 60 FPS", 
-                        source = "YouTube",
-                        videoUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-                        thumbnailUrl = "https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?w=600&auto=format&fit=crop&q=80"
-                    ),
-                    VideoItem(
-                        id = "vid_2",
-                        title = "Elephant's Dream (Open Movie)", 
-                        details = "Blender Project • HD", 
-                        source = "Vimeo",
-                        videoUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
-                        thumbnailUrl = "https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=600&auto=format&fit=crop&q=80"
-                    ),
-                    VideoItem(
-                        id = "vid_3",
-                        title = "For Bigger Blazes (Trailer)", 
-                        details = "Google Samples • 4K", 
-                        source = "Dailymotion",
-                        videoUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-                        thumbnailUrl = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&auto=format&fit=crop&q=80"
-                    ),
-                    VideoItem(
-                        id = "vid_4",
-                        title = "Jetpack Compose Tutoriel Avancé", 
-                        details = "Android Dev • 15K vues", 
-                        source = "YouTube",
-                        videoUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
-                        thumbnailUrl = "https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=600&auto=format&fit=crop&q=80"
-                    )
-                )
-                uiState = UiState.Success(remoteVideos)
+                val remoteVideos = VideoEngine.search(context, query, 10)
+                if (remoteVideos.isEmpty()) {
+                    uiState = UiState.Error("Aucun résultat trouvé.")
+                } else {
+                    uiState = UiState.Success(remoteVideos)
+                }
             } catch (e: Exception) {
                 uiState = UiState.Error("Impossible de charger les flux vidéo. Vérifiez votre connexion.")
             }
@@ -247,6 +212,13 @@ fun MainScreen(
 fun HomeScreen(viewModel: VideoViewModel, onVideoClick: (VideoItem) -> Unit) {
     val scrollState = rememberScrollState()
     val state = viewModel.uiState
+    val context = LocalContext.current
+
+    LaunchedEffect(Unit) {
+        if (state is UiState.Loading) {
+            viewModel.fetchDynamicVideos(context)
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -286,12 +258,21 @@ fun HomeScreen(viewModel: VideoViewModel, onVideoClick: (VideoItem) -> Unit) {
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        Text(
-            text = "Tendances actuelles",
-            color = Color.White,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.SemiBold
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Tendances actuelles",
+                color = Color.White,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            IconButton(onClick = { viewModel.fetchDynamicVideos(context) }) {
+                Icon(Icons.Default.Refresh, contentDescription = "Rafraîchir", tint = Color(0xFFE0AAFF))
+            }
+        }
 
         Spacer(modifier = Modifier.height(12.dp))
 
@@ -321,7 +302,7 @@ fun HomeScreen(viewModel: VideoViewModel, onVideoClick: (VideoItem) -> Unit) {
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Button(
-                        onClick = { viewModel.fetchDynamicVideos() },
+                        onClick = { viewModel.fetchDynamicVideos(context) },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E1A47))
                     ) {
                         Icon(Icons.Default.Refresh, contentDescription = null, tint = Color(0xFFE0AAFF))
@@ -331,133 +312,7 @@ fun HomeScreen(viewModel: VideoViewModel, onVideoClick: (VideoItem) -> Unit) {
                 }
             }
             is UiState.Success -> {
-                state.videos.take(3).forEach { video ->
-                    VideoCard(video = video, onClick = { onVideoClick(video) })
-                    Spacer(modifier = Modifier.height(12.dp))
-                }
-            }
-        }
-        
-        Spacer(modifier = Modifier.height(32.dp))
-    }
-}
-
-@Composable
-fun SearchScreen(viewModel: VideoViewModel, onVideoClick: (VideoItem) -> Unit) {
-    var searchQuery by remember { mutableStateOf("") }
-    var searchTriggered by remember { mutableStateOf(false) }
-    val state = viewModel.uiState
-
-    val allVideos = (state as? UiState.Success)?.videos ?: emptyList()
-
-    val filteredList = if (searchQuery.isBlank()) {
-        emptyList()
-    } else {
-        allVideos.filter { 
-            it.title.contains(searchQuery, ignoreCase = true) || 
-            it.source.contains(searchQuery, ignoreCase = true) 
-        }
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-            .verticalScroll(rememberScrollState())
-    ) {
-        Text(
-            text = "Recherche Avancée",
-            color = Color(0xFFE0AAFF),
-            fontSize = 24.sp,
-            fontWeight = FontWeight.Bold
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = { 
-                searchQuery = it
-                searchTriggered = it.isNotBlank()
-            },
-            placeholder = { Text("Tapez un mot-clé, un auteur...", color = Color(0xFF9A8CB9)) },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = Color(0xFFE0AAFF)) },
-            singleLine = true,
-            shape = RoundedCornerShape(25.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = Color(0xFF1F103F),
-                unfocusedContainerColor = Color(0xFF1F103F),
-                focusedBorderColor = Color(0xFFE0AAFF),
-                unfocusedBorderColor = Color(0xFF3B2859),
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White
-            ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(55.dp)
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        if (!searchTriggered) {
-            Text(
-                text = "Suggestions populaires",
-                color = Color.White,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-
-            val historyItems = listOf("Jetpack Compose", "ExoPlayer streaming", "Animation Blender", "Kotlin coroutines")
-            historyItems.forEach { item ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { 
-                            searchQuery = item
-                            searchTriggered = true
-                        }
-                        .padding(vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = null,
-                        tint = Color(0xFF7A6B9C),
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = item,
-                        color = Color(0xFFD4C9EC),
-                        fontSize = 14.sp
-                    )
-                }
-            }
-        } else {
-            Text(
-                text = "Résultats (${filteredList.size})",
-                color = Color(0xFFE0AAFF),
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-
-            if (filteredList.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 40.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "Aucun résultat trouvé",
-                        color = Color(0xFF9A8CB9),
-                        fontSize = 14.sp
-                    )
-                }
-            } else {
-                filteredList.forEach { video ->
+                state.videos.forEach { video ->
                     VideoCard(video = video, onClick = { onVideoClick(video) })
                     Spacer(modifier = Modifier.height(12.dp))
                 }
