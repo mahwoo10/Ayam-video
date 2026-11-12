@@ -722,8 +722,10 @@ fun PlayerScreen(
             } else {
                 streamError = "Lien vidéo introuvable."
             }
-        } catch (e: Exception) {
-            streamError = "Erreur réseau ou format non supporté."
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            streamError = "Erreur de lecture : " + (e.message ?: e.javaClass.simpleName).take(150)
         }
         streamLoading = false
     }
@@ -765,8 +767,7 @@ fun PlayerScreen(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(if (isFullscreen) 1f else 0f)
-                .height(if (isFullscreen) Dp.Unspecified else 220.dp)
+                .then(if (isFullscreen) Modifier.weight(1f) else Modifier.height(220.dp))
                 .background(Color.Black, shape = if(isFullscreen) RoundedCornerShape(0.dp) else RoundedCornerShape(12.dp))
         ) {
             if (exoPlayer != null) {
@@ -852,7 +853,7 @@ fun PlayerScreen(
                     border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3B2859)),
                     modifier = Modifier.padding(start = 12.dp)
                 ) {
-                    `Row`(
+                    Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                     ) {
