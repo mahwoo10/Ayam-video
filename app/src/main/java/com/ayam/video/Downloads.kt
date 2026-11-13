@@ -117,8 +117,13 @@ object DownloadHolder {
 
                 if (option.audioUrl.isBlank()) {
                     localUri = saveToDownloads(app, fileName, option.mime) { out ->
-                        copyInChunks(option.url, out) { p -> progress[video.id] = p }
+                        if (option.isHls) {
+                            copyHls(option.url, out) { p -> progress[video.id] = p }
+                        } else {
+                            copyInChunks(option.url, out) { p -> progress[video.id] = p }
+                        }
                     }
+                    rejectIfText(app, localUri)
                 } else {
                     vFile.outputStream().use { out ->
                         copyInChunks(option.url, out) { p -> progress[video.id] = p * 0.85f }
@@ -295,6 +300,92 @@ object DownloadHolder {
             try { muxer?.release() } catch (e: Exception) { }
             vEx.release()
             aEx.release()
+        }
+    }
+
+    /** Refuse un « fichier » qui est en réalité du texte (playlist, page d'erreur…). */
+    private fun rejectIfText(context: Context, uriString: String) {
+        val head = try {
+            context.contentResolver.openInputStream(Uri.parse(uriString))?.use { input ->
+                val b = ByteArray(64)
+                val n = input.read(b)
+                if (n > 0) String(b, 0, n, Charsets.ISO_8859_1) else ""
+            } ?: ""
+        } catch (e: Exception) {
+            return
+        }
+        val t = head.trimStart()
+        if (t.startsWith("#EXTM3U") || t.startsWith("<") || t.startsWith("{")) {
+            deleteFile(context, uriString)
+            throw IllegalStateException("Le serveur a envoyé du texte au lieu d'un fichier : " + t.take(40))
+        }
+    }
+
+    private fun httpText(url: String): String {
+        val conn = URL(url).openConnection() as HttpURLConnection
+        conn.connectTimeout = 30000
+        conn.readTimeout = 30000
+        try {
+            if (conn.responseCode != 200) throw IllegalStateException("Serveur : erreur ${conn.responseCode}")
+            return conn.inputStream.bufferedReader().use { it.readText() }
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    /** Télécharge un flux « playlist » (HLS) en collant ses morceaux les uns après les autres. */
+    private fun copyHls(playlistUrl: String, out: OutputStream, onProgress: (Float) -> Unit) {
+        var url = playlistUrl
+        var text = httpText(url)
+        if (text.contains("#EXT-X-STREAM-INF")) {
+            val lines = text.lines()
+            val idx = lines.indexOfFirst { it.startsWith("#EXT-X-STREAM-INF") }
+            val variant = lines.drop(idx + 1).firstOrNull { it.isNotBlank() && !it.startsWith("#") }
+                ?: throw IllegalStateException("Playlist audio introuvable")
+            url = URL(URL(url), variant.trim()).toString()
+            text = httpText(url)
+        }
+        if (text.contains("#EXT-X-KEY") && !text.contains("METHOD=NONE")) {
+            throw IllegalStateException("Flux chiffré : téléchargement impossible")
+        }
+        val base = URL(url)
+        val segments = mutableListOf<String>()
+        var initPart: String? = null
+        for (raw in text.lines()) {
+            val line = raw.trim()
+            if (line.startsWith("#EXT-X-MAP")) {
+                initPart = Regex("URI=\"([^\"]+)\"").find(line)?.groupValues?.get(1)
+            } else if (line.isNotEmpty() && !line.startsWith("#")) {
+                segments.add(line)
+            }
+        }
+        if (segments.isEmpty()) throw IllegalStateException("Playlist audio vide")
+
+        val buffer = ByteArray(64 * 1024)
+        fun fetch(part: String) {
+            val conn = URL(base, part).openConnection() as HttpURLConnection
+            conn.connectTimeout = 30000
+            conn.readTimeout = 30000
+            try {
+                if (conn.responseCode !in 200..299) {
+                    throw IllegalStateException("Serveur : erreur ${conn.responseCode}")
+                }
+                conn.inputStream.use { input ->
+                    while (true) {
+                        val n = input.read(buffer)
+                        if (n < 0) break
+                        out.write(buffer, 0, n)
+                    }
+                }
+            } finally {
+                conn.disconnect()
+            }
+        }
+
+        initPart?.let { fetch(it) }
+        segments.forEachIndexed { i, seg ->
+            fetch(seg)
+            onProgress((i + 1f) / segments.size)
         }
     }
 

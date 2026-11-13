@@ -24,7 +24,8 @@ data class QualityOption(
     val mime: String,
     val sizeBytes: Long,
     val isAudio: Boolean,
-    val audioUrl: String = ""
+    val audioUrl: String = "",
+    val isHls: Boolean = false
 )
 
 data class PlayOption(
@@ -33,7 +34,8 @@ data class PlayOption(
     val audioUrl: String = "",
     val height: Int = 0,
     val isDefault: Boolean = false,
-    val isAudio: Boolean = false
+    val isAudio: Boolean = false,
+    val isHls: Boolean = false
 )
 
 data class VideoDetails(
@@ -232,13 +234,20 @@ object VideoEngine {
                 val a = audios.firstOrNull { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }
                     ?: audios.firstOrNull()
                 if (a != null) {
-                    sorted = listOf(PlayOption(label = "Audio", url = a.content, isAudio = true))
+                    sorted = listOf(
+                        PlayOption(
+                            label = "Audio",
+                            url = a.content,
+                            isAudio = true,
+                            isHls = a.deliveryMethod == DeliveryMethod.HLS
+                        )
+                    )
                 }
             }
             if (sorted.isEmpty()) {
                 val hls = info.hlsUrl
                 if (!hls.isNullOrBlank()) {
-                    sorted = listOf(PlayOption(label = "Auto", url = hls))
+                    sorted = listOf(PlayOption(label = "Auto", url = hls, isHls = true))
                 }
             }
             if (sorted.isEmpty()) throw IllegalStateException("Aucun flux lisible trouvé")
@@ -355,10 +364,15 @@ object VideoEngine {
 
             val videos = raw.sortedByDescending { height(it.tag) }.toMutableList()
 
-            val audioPick = audio ?: info.audioStreams
-                .filter { it.isUrl && it.content.isNotBlank() }
-                .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }
-                .maxByOrNull { it.averageBitrate }
+            val audioCandidates = info.audioStreams.filter { it.isUrl && it.content.isNotBlank() }
+            val audioPick = audio
+                ?: audioCandidates
+                    .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }
+                    .maxByOrNull { it.averageBitrate }
+                ?: audioCandidates
+                    .filter { it.deliveryMethod == DeliveryMethod.HLS }
+                    .maxByOrNull { it.averageBitrate }
+            val pickIsHls = audioPick != null && audioPick.deliveryMethod == DeliveryMethod.HLS
             if (audioPick != null) {
                 val aExt = audioPick.format?.suffix ?: "m4a"
                 videos.add(
@@ -369,7 +383,8 @@ object VideoEngine {
                         ext = aExt,
                         mime = audioPick.format?.mimeType ?: "audio/mp4",
                         sizeBytes = -1L,
-                        isAudio = true
+                        isAudio = true,
+                        isHls = pickIsHls
                     )
                 )
             }
@@ -382,7 +397,7 @@ object VideoEngine {
             coroutineScope {
                 videos.map { opt ->
                     async {
-                        val first = contentSize(opt.url)
+                        val first = if (opt.isHls) -1L else contentSize(opt.url)
                         val total = if (opt.audioUrl.isNotBlank()) {
                             val second = contentSize(opt.audioUrl)
                             if (first > 0 && second > 0) first + second else -1L

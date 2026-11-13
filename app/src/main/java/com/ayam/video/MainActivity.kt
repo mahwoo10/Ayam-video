@@ -52,6 +52,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.source.MergingMediaSource
@@ -948,7 +949,15 @@ fun VideoCard(video: VideoItem, onClick: () -> Unit, onRemove: (() -> Unit)? = n
 @OptIn(UnstableApi::class)
 private fun startPlay(player: ExoPlayer, opt: PlayOption, startMs: Long, play: Boolean = true) {
     if (opt.audioUrl.isBlank()) {
-        player.setMediaItem(MediaItem.fromUri(Uri.parse(opt.url)))
+        val item = if (opt.isHls) {
+            MediaItem.Builder()
+                .setUri(Uri.parse(opt.url))
+                .setMimeType(MimeTypes.APPLICATION_M3U8)
+                .build()
+        } else {
+            MediaItem.fromUri(Uri.parse(opt.url))
+        }
+        player.setMediaItem(item)
     } else {
         val factory = ProgressiveMediaSource.Factory(DefaultHttpDataSource.Factory())
         val video = factory.createMediaSource(MediaItem.fromUri(Uri.parse(opt.url)))
