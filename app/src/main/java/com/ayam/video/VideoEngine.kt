@@ -25,6 +25,19 @@ data class QualityOption(
     val audioUrl: String = ""
 )
 
+data class PlayOption(
+    val label: String,
+    val url: String,
+    val audioUrl: String = "",
+    val height: Int = 0,
+    val isDefault: Boolean = false
+)
+
+data class VideoDetails(
+    val playOptions: List<PlayOption>,
+    val related: List<VideoItem>
+)
+
 object VideoEngine {
 
     @Volatile
@@ -50,28 +63,95 @@ object VideoEngine {
             info.relatedItems
                 .filterIsInstance<StreamInfoItem>()
                 .take(count)
-                .mapNotNull { item ->
-                    val id = item.url.substringAfter("v=", "").substringBefore("&")
-                    if (id.isBlank()) {
-                        null
-                    } else {
-                        val seconds = item.duration
-                        val views = item.viewCount
-                        val details = listOf(
-                            item.uploaderName ?: "",
-                            if (seconds > 0) formatDuration(seconds) else "",
-                            if (views >= 0) "${formatViews(views)} vues" else ""
-                        ).filter { it.isNotBlank() }.joinToString(" • ")
-                        VideoItem(
-                            id = id,
-                            title = item.name ?: "Sans titre",
-                            details = details,
-                            source = "YouTube",
-                            videoUrl = "https://www.youtube.com/watch?v=$id",
-                            thumbnailUrl = "https://i.ytimg.com/vi/$id/hqdefault.jpg"
+                .mapNotNull { toVideoItem(it) }
+        }
+
+    private fun toVideoItem(item: StreamInfoItem): VideoItem? {
+        val id = item.url.substringAfter("v=", "").substringBefore("&")
+        if (id.isBlank()) return null
+        val seconds = item.duration
+        val views = item.viewCount
+        val details = listOf(
+            item.uploaderName ?: "",
+            if (seconds > 0) formatDuration(seconds) else "",
+            if (views >= 0) "${formatViews(views)} vues" else ""
+        ).filter { it.isNotBlank() }.joinToString(" • ")
+        return VideoItem(
+            id = id,
+            title = item.name ?: "Sans titre",
+            details = details,
+            source = "YouTube",
+            videoUrl = "https://www.youtube.com/watch?v=$id",
+            thumbnailUrl = "https://i.ytimg.com/vi/$id/hqdefault.jpg"
+        )
+    }
+
+    /** Qualités de lecture + vidéos suggérées, en un seul appel réseau. */
+    suspend fun loadDetails(context: Context, url: String): VideoDetails =
+        withContext(Dispatchers.IO) {
+            ensureInit()
+            val info = StreamInfo.getInfo(ServiceList.YouTube, url)
+            val options = mutableListOf<PlayOption>()
+
+            // Flux avec image + son déjà ensemble
+            val muxed = info.videoStreams
+                .filter { it.isUrl && it.content.isNotBlank() }
+                .distinctBy { height(it.resolution) }
+            for (s in muxed) {
+                val h = height(s.resolution)
+                options.add(PlayOption(label = "${h}p", url = s.content, height = h))
+            }
+            val muxedHeights = muxed.map { height(it.resolution) }.toSet()
+
+            // Qualités HD : image seule (H.264) + meilleur son M4A, assemblés à la lecture
+            val audio = info.audioStreams
+                .filter { it.isUrl && it.content.isNotBlank() && it.format?.suffix == "m4a" }
+                .maxByOrNull { it.averageBitrate }
+            if (audio != null) {
+                info.videoOnlyStreams
+                    .filter { it.isUrl && it.content.isNotBlank() }
+                    .filter { it.format?.suffix == "mp4" }
+                    .filter { (it.codec ?: "").startsWith("avc1") }
+                    .filter { height(it.resolution) >= 360 }
+                    .filter { height(it.resolution) !in muxedHeights }
+                    .sortedBy { it.fps }
+                    .distinctBy { height(it.resolution) }
+                    .forEach { v ->
+                        val h = height(v.resolution)
+                        options.add(
+                            PlayOption(
+                                label = "${h}p HD",
+                                url = v.content,
+                                audioUrl = audio.content,
+                                height = h
+                            )
                         )
                     }
+            }
+
+            var sorted = options.sortedByDescending { it.height }
+            if (sorted.isEmpty()) {
+                val hls = info.hlsUrl
+                if (!hls.isNullOrBlank()) {
+                    sorted = listOf(PlayOption(label = "Auto", url = hls))
                 }
+            }
+            if (sorted.isEmpty()) throw IllegalStateException("Aucun flux lisible trouvé")
+
+            // Par défaut : le meilleur flux simple (économe en données), 720p maximum
+            val def = sorted.firstOrNull { it.audioUrl.isBlank() && it.height <= 720 } ?: sorted.first()
+            sorted = sorted.map { it.copy(isDefault = it == def) }
+
+            val related = try {
+                info.relatedItems
+                    .filterIsInstance<StreamInfoItem>()
+                    .take(15)
+                    .mapNotNull { toVideoItem(it) }
+            } catch (e: Exception) {
+                emptyList()
+            }
+
+            VideoDetails(playOptions = sorted, related = related)
         }
 
     suspend fun resolveStream(context: Context, url: String): String =

@@ -1,7 +1,10 @@
 package com.ayam.video
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -57,15 +60,48 @@ fun QualityDialog(
                         }
                     }
                     else -> {
-                        opts.forEach { opt ->
-                            OutlinedButton(
-                                onClick = { onPick(opt) },
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(opt.label, color = Color.White, fontSize = 14.sp)
+                        val videos = opts.filter { !it.isAudio }
+                        val audios = opts.filter { it.isAudio }
+                        Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                            if (videos.isNotEmpty()) {
+                                Text(
+                                    "Vidéo",
+                                    color = Color(0xFFE0AAFF),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                videos.forEach { opt ->
+                                    OutlinedButton(
+                                        onClick = { onPick(opt) },
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(opt.label, color = Color.White, fontSize = 14.sp)
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                }
                             }
-                            Spacer(modifier = Modifier.height(8.dp))
+                            if (audios.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    "Audio seulement",
+                                    color = Color(0xFFE0AAFF),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                audios.forEach { opt ->
+                                    OutlinedButton(
+                                        onClick = { onPick(opt) },
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(opt.label, color = Color.White, fontSize = 14.sp)
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                }
+                            }
                         }
                     }
                 }

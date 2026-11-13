@@ -43,10 +43,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.MediaItem
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.source.MergingMediaSource
+import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -133,22 +138,24 @@ data class VideoItem(
 
 @Composable
 fun MainAppRoot(viewModel: VideoViewModel) {
-    var currentVideo by remember { mutableStateOf<VideoItem?>(null) }
+    // Pile de vidéos ouvertes : « Retour » revient à la vidéo précédente
+    val stack = remember { mutableStateListOf<VideoItem>() }
+    val current = stack.lastOrNull()
 
-    if (currentVideo != null) {
-        BackHandler {
-            currentVideo = null
+    if (current != null) {
+        BackHandler { stack.removeAt(stack.lastIndex) }
+        key(current.id) {
+            PlayerScreen(
+                video = current,
+                viewModel = viewModel,
+                onBack = { stack.removeAt(stack.lastIndex) },
+                onOpenVideo = { stack.add(it) }
+            )
         }
-
-        PlayerScreen(
-            video = currentVideo!!, 
-            viewModel = viewModel,
-            onBack = { currentVideo = null }
-        )
     } else {
         MainScreen(
             viewModel = viewModel,
-            onVideoClick = { video -> currentVideo = video }
+            onVideoClick = { video -> stack.add(video) }
         )
     }
 }
@@ -644,21 +651,42 @@ fun VideoCard(video: VideoItem, onClick: () -> Unit) {
     }
 }
 
+@OptIn(UnstableApi::class)
+private fun startPlay(player: ExoPlayer, opt: PlayOption, startMs: Long) {
+    if (opt.audioUrl.isBlank()) {
+        player.setMediaItem(MediaItem.fromUri(Uri.parse(opt.url)))
+    } else {
+        val factory = ProgressiveMediaSource.Factory(DefaultHttpDataSource.Factory())
+        val video = factory.createMediaSource(MediaItem.fromUri(Uri.parse(opt.url)))
+        val audio = factory.createMediaSource(MediaItem.fromUri(Uri.parse(opt.audioUrl)))
+        player.setMediaSource(MergingMediaSource(video, audio))
+    }
+    player.prepare()
+    if (startMs > 0) player.seekTo(startMs)
+    player.playWhenReady = true
+}
+
 @Composable
 fun PlayerScreen(
-    video: VideoItem, 
+    video: VideoItem,
     viewModel: VideoViewModel,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onOpenVideo: (VideoItem) -> Unit
 ) {
     val context = LocalContext.current
     val isFavorite = viewModel.isFavorite(video)
     val isDownloaded = viewModel.isDownloaded(video)
-    
+
     var isFullscreen by remember { mutableStateOf(false) }
     var streamLoading by remember { mutableStateOf(true) }
     var streamError by remember { mutableStateOf<String?>(null) }
     var showQuality by remember { mutableStateOf(false) }
-    
+    var showPlayQuality by remember { mutableStateOf(false) }
+    var playOptions by remember { mutableStateOf<List<PlayOption>>(emptyList()) }
+    var selectedPlay by remember { mutableStateOf<PlayOption?>(null) }
+    var related by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
+    var retryKey by remember { mutableStateOf(0) }
+
     if (showQuality) {
         QualityDialog(
             video = video,
@@ -688,7 +716,7 @@ fun PlayerScreen(
                 }
             }
             exoPlayer.addListener(listener)
-            onDispose { 
+            onDispose {
                 try {
                     exoPlayer.removeListener(listener)
                     exoPlayer.release()
@@ -699,7 +727,7 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(video.videoUrl, exoPlayer) {
+    LaunchedEffect(video.videoUrl, exoPlayer, retryKey) {
         if (exoPlayer == null) {
             streamError = "Impossible d'initialiser le lecteur vidéo."
             streamLoading = false
@@ -708,21 +736,24 @@ fun PlayerScreen(
         streamLoading = true
         streamError = null
         try {
-            val playUrl = if (video.localUri.isNotBlank()) {
-                video.localUri
+            if (video.localUri.isNotBlank()) {
+                exoPlayer.setMediaItem(MediaItem.fromUri(Uri.parse(video.localUri)))
+                exoPlayer.prepare()
+                exoPlayer.playWhenReady = true
             } else if (video.videoUrl.endsWith(".mp4")) {
-                video.videoUrl
-            } else {
-                VideoEngine.resolveStream(context, video.videoUrl)
-            }
-            if (playUrl.isNotBlank()) {
-                exoPlayer.setMediaItem(MediaItem.fromUri(Uri.parse(playUrl)))
+                exoPlayer.setMediaItem(MediaItem.fromUri(Uri.parse(video.videoUrl)))
                 exoPlayer.prepare()
                 exoPlayer.playWhenReady = true
             } else {
-                streamError = "Lien vidéo introuvable."
+                val details = VideoEngine.loadDetails(context, video.videoUrl)
+                playOptions = details.playOptions
+                related = details.related
+                val first = details.playOptions.firstOrNull { it.isDefault }
+                    ?: details.playOptions.first()
+                selectedPlay = first
+                startPlay(exoPlayer, first, 0L)
             }
-        } catch (e: kotlinx.coroutines.CancellationException) {
+        } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
             streamError = "Erreur de lecture : " + (e.message ?: e.javaClass.simpleName).take(150)
@@ -730,10 +761,73 @@ fun PlayerScreen(
         streamLoading = false
     }
 
+    // Vidéo déjà téléchargée : on charge quand même les suggestions
+    LaunchedEffect(video.id) {
+        if (video.localUri.isNotBlank() && video.videoUrl.startsWith("http") && !video.videoUrl.endsWith(".mp4")) {
+            try {
+                related = VideoEngine.loadDetails(context, video.videoUrl).related
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                // pas de suggestions, ce n'est pas grave
+            }
+        }
+    }
+
+    if (showPlayQuality) {
+        AlertDialog(
+            onDismissRequest = { showPlayQuality = false },
+            containerColor = Color(0xFF130826),
+            title = { Text("Qualité de lecture", color = Color(0xFFE0AAFF)) },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    playOptions.forEach { opt ->
+                        val isSel = opt == selectedPlay
+                        OutlinedButton(
+                            onClick = {
+                                showPlayQuality = false
+                                if (!isSel && exoPlayer != null) {
+                                    val pos = exoPlayer.currentPosition
+                                    selectedPlay = opt
+                                    try {
+                                        startPlay(exoPlayer, opt, pos)
+                                    } catch (e: Throwable) {
+                                        streamError = "Erreur de lecture : " + (e.message ?: e.javaClass.simpleName).take(150)
+                                    }
+                                }
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = opt.label + if (isSel) "  ✓" else "",
+                                color = if (isSel) Color(0xFFE0AAFF) else Color.White,
+                                fontSize = 14.sp
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                    Text(
+                        text = "Les qualités HD consomment plus de données.",
+                        color = Color(0xFF9A8CB9),
+                        fontSize = 12.sp
+                    )
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showPlayQuality = false }) {
+                    Text("Annuler", color = Color(0xFF9A8CB9))
+                }
+            }
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF090412))
+            .then(if (isFullscreen) Modifier else Modifier.verticalScroll(rememberScrollState()))
             .padding(if (isFullscreen) 0.dp else 16.dp)
     ) {
         if (!isFullscreen) {
@@ -749,11 +843,11 @@ fun PlayerScreen(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Lecture en cours", color = Color(0xFFE0AAFF), fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 }
-                
+
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (exoPlayer != null) {
                         IconButton(onClick = { isFullscreen = !isFullscreen }) {
-                            Text(if (isFullscreen) "[ 🗗 ]" else "[ 🗖 ]", color = Color(0xFFE0AAFF), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text("[ 🗖 ]", color = Color(0xFFE0AAFF), fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         }
                     }
                     IconButton(onClick = { viewModel.toggleFavorite(video) }) {
@@ -768,7 +862,7 @@ fun PlayerScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .then(if (isFullscreen) Modifier.weight(1f) else Modifier.height(220.dp))
-                .background(Color.Black, shape = if(isFullscreen) RoundedCornerShape(0.dp) else RoundedCornerShape(12.dp))
+                .background(Color.Black, shape = if (isFullscreen) RoundedCornerShape(0.dp) else RoundedCornerShape(12.dp))
         ) {
             if (exoPlayer != null) {
                 AndroidView(
@@ -785,7 +879,7 @@ fun PlayerScreen(
                     Text("Lecteur indisponible", color = Color.White)
                 }
             }
-            
+
             if (isFullscreen) {
                 IconButton(
                     onClick = { isFullscreen = false },
@@ -809,11 +903,7 @@ fun PlayerScreen(
                         Text(text = err, color = Color(0xFFFF8080), fontSize = 13.sp, textAlign = TextAlign.Center)
                         Spacer(modifier = Modifier.height(12.dp))
                         Button(
-                            onClick = { 
-                                streamError = null
-                                streamLoading = true
-                                exoPlayer?.prepare()
-                            },
+                            onClick = { retryKey++ },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E1A47))
                         ) {
                             Text("Réessayer", color = Color(0xFFE0AAFF))
@@ -824,6 +914,24 @@ fun PlayerScreen(
         }
 
         if (!isFullscreen) {
+            if (playOptions.size > 1 && selectedPlay != null) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Surface(
+                    onClick = { showPlayQuality = true },
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color(0xFF2E1A47),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE0AAFF))
+                ) {
+                    Text(
+                        text = "Qualité : " + selectedPlay!!.label + "  ▾",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                }
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -834,14 +942,14 @@ fun PlayerScreen(
                     Text(text = video.title, color = Color(0xFFE0AAFF), fontSize = 18.sp, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = video.details, 
-                        color = Color(0xFF9A8CB9), 
+                        text = video.details,
+                        color = Color(0xFF9A8CB9),
                         fontSize = 14.sp,
                         lineHeight = 20.sp,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
-                
+
                 Surface(
                     onClick = {
                         if (!isDownloaded && DownloadHolder.canStart(video.id)) {
@@ -872,6 +980,22 @@ fun PlayerScreen(
                     }
                 }
             }
+
+            if (related.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(24.dp))
+                Text(
+                    text = "Suggestions",
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                related.forEach { v ->
+                    VideoCard(video = v, onClick = { onOpenVideo(v) })
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+            }
+            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 }
