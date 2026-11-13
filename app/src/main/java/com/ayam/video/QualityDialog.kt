@@ -26,7 +26,7 @@ fun QualityDialog(
 
     LaunchedEffect(video.id) {
         try {
-            options = VideoEngine.listQualities(context, video.videoUrl)
+            options = VideoEngine.listQualities(context, video.videoUrl, video.source)
         } catch (e: Exception) {
             error = "Impossible de lister les qualités : " + (e.message ?: "").take(120)
         }

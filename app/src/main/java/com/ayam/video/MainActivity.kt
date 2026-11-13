@@ -36,7 +36,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -58,6 +61,7 @@ import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -104,16 +108,31 @@ class VideoViewModel : ViewModel() {
     private val _downloadedList = mutableStateListOf<VideoItem>().apply { addAll(Library.load("downloads")) }
     val downloadedList: List<VideoItem> get() = _downloadedList
 
-    fun fetchDynamicVideos(context: Context, query: String = "tendance musique") {
-        viewModelScope.launch {
+    private var fetchJob: Job? = null
+    private var trendsSource: String? = "__aucune__"
+
+    /** Recharge les tendances seulement si la source a changé ou si la dernière tentative a échoué. */
+    fun ensureTrends(context: Context) {
+        if (trendsSource != SearchHolder.source || uiState is UiState.Error) {
+            fetchDynamicVideos(context)
+        }
+    }
+
+    fun fetchDynamicVideos(context: Context) {
+        fetchJob?.cancel()
+        val source = SearchHolder.source
+        trendsSource = source
+        fetchJob = viewModelScope.launch {
             uiState = UiState.Loading
             try {
-                val remoteVideos = VideoEngine.search(context, query, 30)
+                val remoteVideos = VideoEngine.trending(context, source, 30)
                 if (remoteVideos.isEmpty()) {
-                    uiState = UiState.Error("Aucun résultat trouvé.")
+                    uiState = UiState.Error("Aucune tendance disponible pour le moment.")
                 } else {
                     uiState = UiState.Success(remoteVideos)
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 uiState = UiState.Error("Impossible de charger les flux vidéo. Vérifiez votre connexion.")
             }
@@ -189,8 +208,8 @@ fun MainScreen(
     onVideoClick: (VideoItem) -> Unit
 ) {
     var selectedTab by SearchHolder.tabState
-    val items = listOf("Accueil", "Recherche", "Bibliothèque", "Paramètres")
-    val icons = listOf(Icons.Default.Home, Icons.Default.Search, Icons.Default.PlayArrow, Icons.Default.Settings)
+    val items = listOf("Accueil", "Bibliothèque", "Paramètres")
+    val icons = listOf(Icons.Default.Home, Icons.Default.PlayArrow, Icons.Default.Settings)
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -232,9 +251,8 @@ fun MainScreen(
         ) {
             when (selectedTab) {
                 0 -> HomeScreen(viewModel = viewModel, onVideoClick = onVideoClick)
-                1 -> RealSearchScreen(onVideoClick = onVideoClick)
-                2 -> LibraryScreen(viewModel = viewModel, onVideoClick = onVideoClick)
-                3 -> SettingsScreen()
+                1 -> LibraryScreen(viewModel = viewModel, onVideoClick = onVideoClick)
+                2 -> SettingsScreen()
             }
         }
     }
@@ -245,11 +263,11 @@ fun HomeScreen(viewModel: VideoViewModel, onVideoClick: (VideoItem) -> Unit) {
     val scrollState = rememberScrollState()
     val state = viewModel.uiState
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val focus = LocalFocusManager.current
 
     LaunchedEffect(Unit) {
-        if (state is UiState.Loading) {
-            viewModel.fetchDynamicVideos(context)
-        }
+        viewModel.ensureTrends(context)
     }
 
     Column(
@@ -264,118 +282,241 @@ fun HomeScreen(viewModel: VideoViewModel, onVideoClick: (VideoItem) -> Unit) {
             fontSize = 24.sp,
             fontWeight = FontWeight.Bold
         )
-        
-        Spacer(modifier = Modifier.height(16.dp))
 
-        val sources = listOf("YouTube", "Vimeo", "Dailymotion", "TikTok")
+        Spacer(modifier = Modifier.height(12.dp))
+
+        SearchBar(
+            onSearch = {
+                focus.clearFocus()
+                scope.launch { runSearch(context) }
+            },
+            onClear = {
+                clearSearch()
+                viewModel.ensureTrends(context)
+            }
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        val options = listOf<String?>(null) + SOURCE_NAMES
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            sources.forEach { source ->
-                SourceBadge(name = source)
+            options.forEach { opt ->
+                SourceChip(
+                    label = opt ?: "Tout",
+                    selected = SearchHolder.source == opt,
+                    onClick = {
+                        if (SearchHolder.source != opt) {
+                            SearchHolder.source = opt
+                            if (SearchHolder.searched) {
+                                scope.launch { runSearch(context) }
+                            } else {
+                                viewModel.fetchDynamicVideos(context)
+                            }
+                        }
+                    }
+                )
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Tendances actuelles",
-                color = Color.White,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-            IconButton(onClick = { viewModel.fetchDynamicVideos(context) }) {
-                Icon(Icons.Default.Refresh, contentDescription = "Rafraîchir", tint = Pal.accent)
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        when (state) {
-            is UiState.Loading -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(200.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator(color = Pal.accent)
+        if (SearchHolder.searched) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (SearchHolder.loading) "Recherche…" else "Résultats (${SearchHolder.results.size})",
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                TextButton(onClick = {
+                    clearSearch()
+                    viewModel.ensureTrends(context)
+                }) {
+                    Text("Effacer", color = Pal.accent)
                 }
             }
-            is UiState.Error -> {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 30.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = state.message,
-                        color = Color(0xFFFF8080),
-                        fontSize = 14.sp,
-                        textAlign = TextAlign.Center
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Button(
-                        onClick = { viewModel.fetchDynamicVideos(context) },
-                        colors = ButtonDefaults.buttonColors(containerColor = Pal.surface2)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            val err = SearchHolder.error
+            when {
+                SearchHolder.loading -> {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Default.Refresh, contentDescription = null, tint = Pal.accent)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Réessayer", color = Pal.accent)
+                        CircularProgressIndicator(color = Pal.accent)
+                    }
+                }
+                err != null -> {
+                    Text(text = err, color = Color(0xFFFF8080), fontSize = 14.sp)
+                }
+                SearchHolder.results.isEmpty() -> {
+                    Text(text = "Aucun résultat trouvé", color = Pal.muted, fontSize = 14.sp)
+                }
+                else -> {
+                    SearchHolder.results.forEach { video ->
+                        VideoRow(video = video, onClick = { onVideoClick(video) })
+                        Spacer(modifier = Modifier.height(8.dp))
                     }
                 }
             }
-            is UiState.Success -> {
-                state.videos.forEach { video ->
-                    VideoCard(video = video, onClick = { onVideoClick(video) })
-                    Spacer(modifier = Modifier.height(12.dp))
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Tendances actuelles",
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                IconButton(onClick = { viewModel.fetchDynamicVideos(context) }) {
+                    Icon(Icons.Default.Refresh, contentDescription = "Rafraîchir", tint = Pal.accent)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            when (state) {
+                is UiState.Loading -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(color = Pal.accent)
+                    }
+                }
+                is UiState.Error -> {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 30.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = state.message,
+                            color = Color(0xFFFF8080),
+                            fontSize = 14.sp,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Button(
+                            onClick = { viewModel.fetchDynamicVideos(context) },
+                            colors = ButtonDefaults.buttonColors(containerColor = Pal.surface2)
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, tint = Pal.accent)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Réessayer", color = Pal.accent)
+                        }
+                    }
+                }
+                is UiState.Success -> {
+                    state.videos.forEachIndexed { index, video ->
+                        if (index == 0) {
+                            VideoCard(video = video, onClick = { onVideoClick(video) })
+                        } else {
+                            VideoRow(video = video, onClick = { onVideoClick(video) })
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
                 }
             }
         }
-        
+
         Spacer(modifier = Modifier.height(32.dp))
     }
 }
 
 @Composable
-fun SourceBadge(name: String) {
-    var isSelected by remember { mutableStateOf(true) }
-
+fun SourceChip(label: String, selected: Boolean, onClick: () -> Unit) {
     Surface(
-        onClick = { isSelected = !isSelected },
+        onClick = onClick,
         shape = RoundedCornerShape(20.dp),
-        color = if (isSelected) Pal.surface2 else Pal.surface,
+        color = if (selected) Pal.surface2 else Pal.surface,
         border = androidx.compose.foundation.BorderStroke(
             width = 1.dp,
-            color = if (isSelected) Pal.accent else Pal.border
+            color = if (selected) Pal.accent else Pal.border
         )
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
+        Text(
+            text = label,
+            color = if (selected) Pal.accent else Pal.muted,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+        )
+    }
+}
+
+@Composable
+fun VideoRow(video: VideoItem, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(Pal.surface)
+            .clickable { onClick() }
+            .padding(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .width(112.dp)
+                .height(64.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Pal.surface2),
+            contentAlignment = Alignment.Center
         ) {
-            if (isSelected) {
-                Icon(
-                    imageVector = Icons.Default.Check,
-                    contentDescription = null,
-                    tint = Pal.accent,
-                    modifier = Modifier.size(16.dp)
+            if (video.thumbnailUrl.isNotBlank()) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(video.thumbnailUrl)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = video.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
                 )
-                Spacer(modifier = Modifier.width(6.dp))
+            } else {
+                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Pal.accent)
             }
+        }
+        Spacer(modifier = Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = name,
+                text = video.title,
                 color = Color.White,
                 fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = video.details,
+                color = Pal.muted,
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = video.source,
+                color = Pal.accent,
+                fontSize = 11.sp,
                 fontWeight = FontWeight.Medium
             )
         }
@@ -898,7 +1039,7 @@ fun PlayerScreen(
                 exoPlayer.prepare()
                 exoPlayer.playWhenReady = autoPlayEnabled(context)
             } else {
-                val details = VideoEngine.loadDetails(context, video.videoUrl)
+                val details = VideoEngine.loadDetails(context, video.videoUrl, video.source)
                 playOptions = details.playOptions
                 related = details.related
                 val first = details.playOptions.firstOrNull { it.isDefault }
@@ -918,7 +1059,7 @@ fun PlayerScreen(
     LaunchedEffect(video.id) {
         if (video.localUri.isNotBlank() && video.videoUrl.startsWith("http") && !video.videoUrl.endsWith(".mp4")) {
             try {
-                related = VideoEngine.loadDetails(context, video.videoUrl).related
+                related = VideoEngine.loadDetails(context, video.videoUrl, video.source).related
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
@@ -1018,12 +1159,21 @@ fun PlayerScreen(
                 .then(if (isFullscreen) Modifier.weight(1f) else Modifier.height(220.dp))
                 .background(Color.Black, shape = if (isFullscreen) RoundedCornerShape(0.dp) else RoundedCornerShape(12.dp))
         ) {
+            if (selectedPlay?.isAudio == true && video.thumbnailUrl.isNotBlank()) {
+                AsyncImage(
+                    model = ImageRequest.Builder(context).data(video.thumbnailUrl).build(),
+                    contentDescription = video.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
             if (exoPlayer != null) {
                 AndroidView(
                     factory = { ctx ->
                         PlayerView(ctx).apply {
                             player = exoPlayer
                             useController = true
+                            setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
                         }
                     },
                     modifier = Modifier.fillMaxSize()
@@ -1145,8 +1295,8 @@ fun PlayerScreen(
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 related.forEach { v ->
-                    VideoCard(video = v, onClick = { onOpenVideo(v) })
-                    Spacer(modifier = Modifier.height(12.dp))
+                    VideoRow(video = v, onClick = { onOpenVideo(v) })
+                    Spacer(modifier = Modifier.height(8.dp))
                 }
             }
             Spacer(modifier = Modifier.height(32.dp))

@@ -7,8 +7,10 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.NewPipe
+import org.schabi.newpipe.extractor.StreamingService
 import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.search.SearchInfo
+import org.schabi.newpipe.extractor.stream.DeliveryMethod
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import java.net.HttpURLConnection
@@ -30,13 +32,19 @@ data class PlayOption(
     val url: String,
     val audioUrl: String = "",
     val height: Int = 0,
-    val isDefault: Boolean = false
+    val isDefault: Boolean = false,
+    val isAudio: Boolean = false
 )
 
 data class VideoDetails(
     val playOptions: List<PlayOption>,
     val related: List<VideoItem>
 )
+
+/** Sources réellement prises en charge (chacune a de vraies tendances et une vraie recherche). */
+val SOURCE_NAMES = listOf("YouTube", "SoundCloud", "PeerTube")
+
+private class Fetch(val items: List<VideoItem>, val error: Exception?)
 
 object VideoEngine {
 
@@ -54,21 +62,107 @@ object VideoEngine {
         }
     }
 
-    suspend fun search(context: Context, query: String, count: Int = 15): List<VideoItem> =
+    private fun serviceOf(source: String): StreamingService = when (source) {
+        "SoundCloud" -> ServiceList.SoundCloud
+        "PeerTube" -> ServiceList.PeerTube
+        else -> ServiceList.YouTube
+    }
+
+    /** Mélange les listes une vidéo à la fois (YouTube, SoundCloud, PeerTube, YouTube…). */
+    private fun interleave(lists: List<List<VideoItem>>, count: Int): List<VideoItem> {
+        val out = mutableListOf<VideoItem>()
+        val seen = HashSet<String>()
+        var i = 0
+        while (out.size < count && lists.any { i < it.size }) {
+            for (l in lists) {
+                if (i < l.size && out.size < count && seen.add(l[i].id)) out.add(l[i])
+            }
+            i++
+        }
+        return out
+    }
+
+    private fun searchOne(source: String, query: String): List<VideoItem> {
+        val service = serviceOf(source)
+        val filter = if (source == "SoundCloud") "tracks" else "videos"
+        val handler = service.searchQHFactory.fromQuery(query, listOf(filter), "")
+        val info = SearchInfo.getInfo(service, handler)
+        return info.relatedItems
+            .filterIsInstance<StreamInfoItem>()
+            .mapNotNull { toVideoItem(it, source) }
+    }
+
+    private fun trendingOne(source: String): List<VideoItem> {
+        val service = serviceOf(source)
+        val items = try {
+            val kiosk = service.kioskList.defaultKioskExtractor
+            kiosk.fetchPage()
+            kiosk.initialPage.items
+                .filterIsInstance<StreamInfoItem>()
+                .mapNotNull { toVideoItem(it, source) }
+        } catch (e: Exception) {
+            emptyList()
+        }
+        if (items.isNotEmpty()) return items
+        // YouTube a retiré sa page Tendances : on se rabat sur une recherche musicale populaire
+        if (source == "YouTube") return searchOne("YouTube", "tendance musique")
+        return emptyList()
+    }
+
+    suspend fun trending(context: Context, source: String? = null, count: Int = 30): List<VideoItem> =
         withContext(Dispatchers.IO) {
             ensureInit()
-            val yt = ServiceList.YouTube
-            val handler = yt.searchQHFactory.fromQuery(query, listOf("videos"), "")
-            val info = SearchInfo.getInfo(yt, handler)
-            info.relatedItems
-                .filterIsInstance<StreamInfoItem>()
-                .take(count)
-                .mapNotNull { toVideoItem(it) }
+            if (source != null) return@withContext trendingOne(source).take(count)
+            val lists = coroutineScope {
+                SOURCE_NAMES.map { s ->
+                    async {
+                        try { trendingOne(s) } catch (e: Exception) { emptyList<VideoItem>() }
+                    }
+                }.awaitAll()
+            }
+            interleave(lists, count)
         }
 
-    private fun toVideoItem(item: StreamInfoItem): VideoItem? {
-        val id = item.url.substringAfter("v=", "").substringBefore("&")
-        if (id.isBlank()) return null
+    suspend fun search(
+        context: Context,
+        query: String,
+        count: Int = 15,
+        source: String? = null
+    ): List<VideoItem> =
+        withContext(Dispatchers.IO) {
+            ensureInit()
+            if (source != null) return@withContext searchOne(source, query).take(count)
+            val fetched = coroutineScope {
+                SOURCE_NAMES.map { s ->
+                    async {
+                        try {
+                            Fetch(searchOne(s, query), null)
+                        } catch (e: Exception) {
+                            Fetch(emptyList(), e)
+                        }
+                    }
+                }.awaitAll()
+            }
+            if (fetched.all { it.error != null }) throw fetched.first().error!!
+            interleave(fetched.map { it.items }, count)
+        }
+
+    private fun toVideoItem(item: StreamInfoItem, source: String): VideoItem? {
+        val url = item.url ?: return null
+        val id: String
+        val videoUrl: String
+        val thumb: String
+        if (source == "YouTube") {
+            val vid = url.substringAfter("v=", "").substringBefore("&")
+            if (vid.isBlank()) return null
+            id = vid
+            videoUrl = "https://www.youtube.com/watch?v=$vid"
+            thumb = "https://i.ytimg.com/vi/$vid/hqdefault.jpg"
+        } else {
+            id = source.take(2).lowercase() + "_" + Integer.toHexString(url.hashCode())
+            videoUrl = url
+            thumb = item.thumbnails.maxByOrNull { it.height }?.url ?: ""
+        }
         val seconds = item.duration
         val views = item.viewCount
         val details = listOf(
@@ -80,17 +174,17 @@ object VideoEngine {
             id = id,
             title = item.name ?: "Sans titre",
             details = details,
-            source = "YouTube",
-            videoUrl = "https://www.youtube.com/watch?v=$id",
-            thumbnailUrl = "https://i.ytimg.com/vi/$id/hqdefault.jpg"
+            source = source,
+            videoUrl = videoUrl,
+            thumbnailUrl = thumb
         )
     }
 
     /** Qualités de lecture + vidéos suggérées, en un seul appel réseau. */
-    suspend fun loadDetails(context: Context, url: String): VideoDetails =
+    suspend fun loadDetails(context: Context, url: String, source: String = "YouTube"): VideoDetails =
         withContext(Dispatchers.IO) {
             ensureInit()
-            val info = StreamInfo.getInfo(ServiceList.YouTube, url)
+            val info = StreamInfo.getInfo(serviceOf(source), url)
             val options = mutableListOf<PlayOption>()
 
             // Flux avec image + son déjà ensemble
@@ -131,6 +225,17 @@ object VideoEngine {
 
             var sorted = options.sortedByDescending { it.height }
             if (sorted.isEmpty()) {
+                // Musique (SoundCloud…) : pas d'image, seulement du son
+                val audios = info.audioStreams
+                    .filter { it.isUrl && it.content.isNotBlank() }
+                    .sortedByDescending { it.averageBitrate }
+                val a = audios.firstOrNull { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }
+                    ?: audios.firstOrNull()
+                if (a != null) {
+                    sorted = listOf(PlayOption(label = "Audio", url = a.content, isAudio = true))
+                }
+            }
+            if (sorted.isEmpty()) {
                 val hls = info.hlsUrl
                 if (!hls.isNullOrBlank()) {
                     sorted = listOf(PlayOption(label = "Auto", url = hls))
@@ -146,7 +251,7 @@ object VideoEngine {
                 info.relatedItems
                     .filterIsInstance<StreamInfoItem>()
                     .take(15)
-                    .mapNotNull { toVideoItem(it) }
+                    .mapNotNull { toVideoItem(it, source) }
             } catch (e: Exception) {
                 emptyList()
             }
@@ -168,7 +273,7 @@ object VideoEngine {
             throw IllegalStateException("Aucun flux lisible trouvé")
         }
 
-    suspend fun listQualities(context: Context, videoUrl: String): List<QualityOption> =
+    suspend fun listQualities(context: Context, videoUrl: String, source: String = "YouTube"): List<QualityOption> =
         withContext(Dispatchers.IO) {
             if (videoUrl.endsWith(".mp4")) {
                 val size = contentSize(videoUrl)
@@ -186,12 +291,13 @@ object VideoEngine {
             }
 
             ensureInit()
-            val info = StreamInfo.getInfo(ServiceList.YouTube, videoUrl)
+            val info = StreamInfo.getInfo(serviceOf(source), videoUrl)
             val raw = mutableListOf<QualityOption>()
 
             // Flux avec image + son déjà ensemble
             val muxed = info.videoStreams
                 .filter { it.isUrl && it.content.isNotBlank() }
+                .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }
                 .filter { (it.format?.suffix ?: "") in listOf("mp4", "webm") }
                 .sortedByDescending {
                     height(it.resolution) * 10 + (if (it.format?.suffix == "mp4") 1 else 0)
@@ -249,14 +355,19 @@ object VideoEngine {
 
             val videos = raw.sortedByDescending { height(it.tag) }.toMutableList()
 
-            if (audio != null) {
+            val audioPick = audio ?: info.audioStreams
+                .filter { it.isUrl && it.content.isNotBlank() }
+                .filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }
+                .maxByOrNull { it.averageBitrate }
+            if (audioPick != null) {
+                val aExt = audioPick.format?.suffix ?: "m4a"
                 videos.add(
                     QualityOption(
-                        label = "Audio seulement • M4A",
+                        label = "Audio seulement • " + aExt.uppercase(),
                         tag = "audio",
-                        url = audio.content,
-                        ext = "m4a",
-                        mime = audio.format?.mimeType ?: "audio/mp4",
+                        url = audioPick.content,
+                        ext = aExt,
+                        mime = audioPick.format?.mimeType ?: "audio/mp4",
                         sizeBytes = -1L,
                         isAudio = true
                     )
