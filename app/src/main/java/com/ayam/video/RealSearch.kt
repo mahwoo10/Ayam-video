@@ -1,6 +1,20 @@
 package com.ayam.video
 
 import android.content.Context
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -62,31 +76,48 @@ fun clearSearch() {
 
 @androidx.compose.runtime.Composable
 fun SearchBar(onSearch: () -> Unit, onClear: () -> Unit) {
-    OutlinedTextField(
-        value = SearchHolder.query,
-        onValueChange = { SearchHolder.query = it },
-        placeholder = { Text("Rechercher une vidéo ou une musique", color = Pal.muted2) },
-        singleLine = true,
-        leadingIcon = {
-            Icon(Icons.Default.Search, contentDescription = null, tint = Pal.accent)
-        },
-        trailingIcon = {
-            if (SearchHolder.query.isNotEmpty()) {
-                IconButton(onClick = onClear) {
-                    Icon(Icons.Default.Close, contentDescription = "Effacer", tint = Pal.muted)
-                }
+    val shape = RoundedCornerShape(22.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .clip(shape)
+            .background(Pal.surface)
+            .border(1.dp, Pal.border, shape)
+            .padding(start = 14.dp, end = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            Icons.Default.Search,
+            contentDescription = null,
+            tint = Pal.accent,
+            modifier = Modifier.size(20.dp)
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+            if (SearchHolder.query.isEmpty()) {
+                Text("Rechercher", color = Pal.muted2, fontSize = 14.sp)
             }
-        },
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-        keyboardActions = KeyboardActions(onSearch = { onSearch() }),
-        shape = RoundedCornerShape(14.dp),
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedTextColor = Color.White,
-            unfocusedTextColor = Color.White,
-            focusedBorderColor = Pal.accent,
-            unfocusedBorderColor = Pal.border,
-            cursorColor = Pal.accent
-        ),
-        modifier = Modifier.fillMaxWidth()
-    )
+            BasicTextField(
+                value = SearchHolder.query,
+                onValueChange = { SearchHolder.query = it },
+                singleLine = true,
+                textStyle = TextStyle(color = Color.White, fontSize = 14.sp),
+                cursorBrush = SolidColor(Pal.accent),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        if (SearchHolder.query.isNotEmpty()) {
+            IconButton(onClick = onClear, modifier = Modifier.size(34.dp)) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = "Effacer",
+                    tint = Pal.muted,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+    }
 }

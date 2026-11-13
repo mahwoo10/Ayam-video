@@ -1,6 +1,11 @@
 package com.ayam.video
 
 import android.Manifest
+import android.app.Activity
+import android.content.ContextWrapper
+import android.content.Intent
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
@@ -12,6 +17,9 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,6 +27,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -30,6 +39,7 @@ import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -41,7 +51,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -64,6 +77,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -1169,6 +1183,63 @@ private fun startPlay(player: ExoPlayer, opt: PlayOption, startMs: Long, play: B
     player.playWhenReady = play
 }
 
+private fun Context.findActivity(): Activity? {
+    var c: Context = this
+    while (c is ContextWrapper) {
+        if (c is Activity) return c
+        c = c.baseContext
+    }
+    return null
+}
+
+private fun speedText(sp: Float): String =
+    (if (sp % 1f == 0f) sp.toInt().toString() else sp.toString().replace('.', ',')) + "x"
+
+@Composable
+fun RoundAction(
+    label: String,
+    highlighted: Boolean = false,
+    onClick: () -> Unit,
+    icon: @Composable () -> Unit
+) {
+    Column(
+        modifier = Modifier.width(66.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(CircleShape)
+                .background(if (highlighted) Pal.accent else Pal.surface2)
+                .clickable { onClick() },
+            contentAlignment = Alignment.Center
+        ) {
+            icon()
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = label,
+            color = Color.White,
+            fontSize = 11.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+fun OverlayPill(text: String, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(Pal.bg.copy(alpha = 0.75f))
+            .clickable { onClick() }
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+    ) {
+        Text(text = text, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
 @Composable
 fun PlayerScreen(
     video: VideoItem,
@@ -1177,18 +1248,70 @@ fun PlayerScreen(
     onOpenVideo: (VideoItem) -> Unit
 ) {
     val context = LocalContext.current
+    val activity = remember(context) { context.findActivity() }
+    val view = LocalView.current
+    val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val isFullscreen = isLandscape
+
     val isFavorite = viewModel.isFavorite(video)
     val isDownloaded = viewModel.isDownloaded(video)
 
-    var isFullscreen by remember { mutableStateOf(false) }
     var streamLoading by remember { mutableStateOf(true) }
     var streamError by remember { mutableStateOf<String?>(null) }
     var showQuality by remember { mutableStateOf(false) }
     var showPlayQuality by remember { mutableStateOf(false) }
+    var showSpeed by remember { mutableStateOf(false) }
     var playOptions by remember { mutableStateOf<List<PlayOption>>(emptyList()) }
     var selectedPlay by remember { mutableStateOf<PlayOption?>(null) }
     var related by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
     var retryKey by remember { mutableStateOf(0) }
+    var speed by remember { mutableStateOf(1f) }
+    var repeatOne by remember { mutableStateOf(false) }
+    var unlockTick by remember { mutableStateOf(0) }
+
+    fun enterFullscreen() {
+        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+    }
+
+    fun exitFullscreen() {
+        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        unlockTick++
+    }
+
+    // Après être revenu en portrait, on rend la rotation libre
+    LaunchedEffect(unlockTick) {
+        if (unlockTick > 0) {
+            delay(1500)
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
+
+    // Plein écran immersif (barres du système cachées)
+    DisposableEffect(isFullscreen) {
+        val window = activity?.window
+        if (window != null) {
+            val c = WindowCompat.getInsetsController(window, view)
+            if (isFullscreen) {
+                c?.hide(WindowInsetsCompat.Type.systemBars())
+                c?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            } else {
+                c?.show(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+        onDispose {
+            activity?.window?.let { w ->
+                WindowCompat.getInsetsController(w, view)?.show(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+    }
+
+    BackHandler(enabled = isFullscreen) { exitFullscreen() }
 
     if (showQuality) {
         QualityDialog(
@@ -1228,6 +1351,16 @@ fun PlayerScreen(
         } else {
             onDispose {}
         }
+    }
+
+    LaunchedEffect(speed, exoPlayer) {
+        try { exoPlayer?.setPlaybackSpeed(speed) } catch (e: Exception) { }
+    }
+
+    LaunchedEffect(repeatOne, exoPlayer) {
+        exoPlayer?.repeatMode =
+            if (repeatOne) androidx.media3.common.Player.REPEAT_MODE_ONE
+            else androidx.media3.common.Player.REPEAT_MODE_OFF
     }
 
     LaunchedEffect(video.videoUrl, exoPlayer, retryKey) {
@@ -1327,6 +1460,43 @@ fun PlayerScreen(
         )
     }
 
+    if (showSpeed) {
+        val speeds = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
+        AlertDialog(
+            onDismissRequest = { showSpeed = false },
+            containerColor = Pal.surface,
+            title = { Text("Vitesse de lecture", color = Pal.accent) },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    speeds.forEach { sp ->
+                        val isSel = sp == speed
+                        OutlinedButton(
+                            onClick = {
+                                speed = sp
+                                showSpeed = false
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = (if (sp == 1f) "Normale (1x)" else speedText(sp)) + if (isSel) "  ✓" else "",
+                                color = if (isSel) Pal.accent else Color.White,
+                                fontSize = 14.sp
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showSpeed = false }) {
+                    Text("Annuler", color = Pal.muted)
+                }
+            }
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -1337,36 +1507,23 @@ fun PlayerScreen(
         if (!isFullscreen) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Retour", tint = Pal.accent)
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Lecture en cours", color = Pal.accent, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                IconButton(onClick = onBack) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Retour", tint = Pal.accent)
                 }
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (exoPlayer != null) {
-                        IconButton(onClick = { isFullscreen = !isFullscreen }) {
-                            Text("[ 🗖 ]", color = Pal.accent, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        }
-                    }
-                    IconButton(onClick = { viewModel.toggleFavorite(video) }) {
-                        Icon(if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, contentDescription = "Favori", tint = Pal.accent)
-                    }
-                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Lecture en cours", color = Pal.accent, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             }
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
         }
 
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .then(if (isFullscreen) Modifier.weight(1f) else Modifier.height(220.dp))
-                .background(Color.Black, shape = if (isFullscreen) RoundedCornerShape(0.dp) else RoundedCornerShape(12.dp))
+                .background(Color.Black, shape = if (isFullscreen) RoundedCornerShape(0.dp) else RoundedCornerShape(20.dp))
+                .clip(if (isFullscreen) RoundedCornerShape(0.dp) else RoundedCornerShape(20.dp))
         ) {
             if (selectedPlay?.isAudio == true && video.thumbnailUrl.isNotBlank()) {
                 AsyncImage(
@@ -1394,11 +1551,18 @@ fun PlayerScreen(
             }
 
             if (isFullscreen) {
-                IconButton(
-                    onClick = { isFullscreen = false },
-                    modifier = Modifier.align(Alignment.TopEnd).padding(16.dp).background(Pal.surface.copy(alpha = 0.67f), shape = RoundedCornerShape(50))
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("✕", color = Color.White, fontWeight = FontWeight.Bold)
+                    OverlayPill(text = speedText(speed), onClick = { showSpeed = true })
+                    if (playOptions.size > 1 && selectedPlay != null) {
+                        OverlayPill(text = selectedPlay!!.label, onClick = { showPlayQuality = true })
+                    }
+                    OverlayPill(text = "Réduire", onClick = { exitFullscreen() })
                 }
             }
 
@@ -1427,71 +1591,79 @@ fun PlayerScreen(
         }
 
         if (!isFullscreen) {
-            if (playOptions.size > 1 && selectedPlay != null) {
-                Spacer(modifier = Modifier.height(12.dp))
-                Surface(
-                    onClick = { showPlayQuality = true },
-                    shape = RoundedCornerShape(20.dp),
-                    color = Pal.surface2,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Pal.accent)
-                ) {
-                    Text(
-                        text = "Qualité : " + selectedPlay!!.label + "  ▾",
-                        color = Color.White,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                    )
-                }
-            }
+            Spacer(modifier = Modifier.height(14.dp))
 
-            Spacer(modifier = Modifier.height(16.dp))
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(text = video.title, color = Pal.accent, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = video.details,
-                        color = Pal.muted,
-                        fontSize = 14.sp,
-                        lineHeight = 20.sp,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-
-                Surface(
+                RoundAction(
+                    label = downloadLabel(isDownloaded, DownloadHolder.progress[video.id]),
+                    highlighted = !isDownloaded,
                     onClick = {
                         if (!isDownloaded && DownloadHolder.canStart(video.id)) {
                             showQuality = true
                         }
-                    },
-                    shape = RoundedCornerShape(12.dp),
-                    color = if (isDownloaded) Pal.surface2 else Pal.surface,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Pal.border),
-                    modifier = Modifier.padding(start = 12.dp)
+                    }
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (isDownloaded) Icons.Default.Check else Icons.Default.Add,
-                            contentDescription = "Télécharger",
-                            tint = if (isDownloaded) Pal.accent else Pal.muted2
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = downloadLabel(isDownloaded, DownloadHolder.progress[video.id]),
-                            color = if (isDownloaded) Color.White else Pal.muted,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                    Icon(
+                        imageVector = if (isDownloaded) Icons.Default.Check else Icons.Default.Add,
+                        contentDescription = "Télécharger",
+                        tint = if (isDownloaded) Pal.accent else Pal.bg
+                    )
+                }
+                if (playOptions.size > 1 && selectedPlay != null) {
+                    RoundAction(label = "Qualité", onClick = { showPlayQuality = true }) {
+                        Text(selectedPlay!!.label.substringBefore(" "), color = Pal.accent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
+                RoundAction(label = "Vitesse", onClick = { showSpeed = true }) {
+                    Text(speedText(speed), color = Pal.accent, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+                RoundAction(label = "Pivoter", onClick = { enterFullscreen() }) {
+                    Icon(Icons.Default.Refresh, contentDescription = "Plein écran", tint = Pal.accent)
+                }
+                RoundAction(label = "Boucle", highlighted = repeatOne, onClick = { repeatOne = !repeatOne }) {
+                    Text("∞", color = if (repeatOne) Pal.bg else Pal.accent, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                }
+                RoundAction(label = "Favori", onClick = { viewModel.toggleFavorite(video) }) {
+                    Icon(
+                        imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                        contentDescription = "Favori",
+                        tint = Pal.accent
+                    )
+                }
+                RoundAction(
+                    label = "Partager",
+                    onClick = {
+                        if (video.videoUrl.startsWith("http")) {
+                            val send = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_TEXT, video.title + "\n" + video.videoUrl)
+                            }
+                            context.startActivity(Intent.createChooser(send, "Partager"))
+                        }
+                    }
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = "Partager", tint = Pal.accent)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(text = video.title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                SourceLogo(video.source, 14.dp)
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = video.details,
+                    color = Pal.muted,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp
+                )
             }
 
             if (related.isNotEmpty()) {
