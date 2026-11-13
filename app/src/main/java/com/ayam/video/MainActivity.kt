@@ -13,6 +13,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -204,37 +205,63 @@ fun MainAppRoot(viewModel: VideoViewModel) {
 }
 
 @Composable
+fun FloatingNavBar(selected: Int, onSelect: (Int) -> Unit) {
+    val items = listOf("Accueil", "Bibliothèque", "Réglages")
+    val icons = listOf(Icons.Default.Home, Icons.Default.PlayArrow, Icons.Default.Settings)
+    val barShape = RoundedCornerShape(28.dp)
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal = 16.dp, vertical = 10.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(barShape)
+                .background(Pal.surface)
+                .border(1.dp, Pal.border, barShape)
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            items.forEachIndexed { i, label ->
+                val sel = selected == i
+                Column(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(if (sel) Pal.surface2 else Color.Transparent)
+                        .clickable { onSelect(i) }
+                        .padding(horizontal = 18.dp, vertical = 6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        icons[i],
+                        contentDescription = label,
+                        tint = if (sel) Pal.accent else Pal.muted2
+                    )
+                    Text(
+                        text = label,
+                        color = if (sel) Pal.accent else Pal.muted2,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun MainScreen(
     viewModel: VideoViewModel,
     onVideoClick: (VideoItem) -> Unit
 ) {
     var selectedTab by SearchHolder.tabState
-    val items = listOf("Accueil", "Bibliothèque", "Paramètres")
-    val icons = listOf(Icons.Default.Home, Icons.Default.PlayArrow, Icons.Default.Settings)
 
     Scaffold(
         containerColor = Color.Transparent,
         bottomBar = {
-            NavigationBar(
-                containerColor = Pal.surface,
-                contentColor = Pal.accent
-            ) {
-                items.forEachIndexed { index, item ->
-                    NavigationBarItem(
-                        icon = { Icon(icons[index], contentDescription = item) },
-                        label = { Text(item, fontSize = 10.sp) },
-                        selected = selectedTab == index,
-                        onClick = { selectedTab = index },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = Color(0xFFFFFFFF),
-                            selectedTextColor = Pal.accent,
-                            unselectedIconColor = Pal.muted2,
-                            unselectedTextColor = Pal.muted2,
-                            indicatorColor = Pal.surface2
-                        )
-                    )
-                }
-            }
+            FloatingNavBar(selected = selectedTab, onSelect = { selectedTab = it })
         }
     ) { innerPadding ->
         Box(
@@ -277,14 +304,25 @@ fun HomeScreen(viewModel: VideoViewModel, onVideoClick: (VideoItem) -> Unit) {
             .verticalScroll(scrollState)
             .padding(16.dp)
     ) {
-        Text(
-            text = "AYAM VIDEO",
-            color = Pal.accent,
-            fontSize = 24.sp,
-            fontWeight = FontWeight.Bold
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Ayam Video",
+                color = Pal.accent,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold
+            )
+            if (!SearchHolder.searched) {
+                IconButton(onClick = { viewModel.fetchDynamicVideos(context) }) {
+                    Icon(Icons.Default.Refresh, contentDescription = "Rafraîchir", tint = Pal.muted)
+                }
+            }
+        }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         SearchBar(
             onSearch = {
@@ -309,6 +347,7 @@ fun HomeScreen(viewModel: VideoViewModel, onVideoClick: (VideoItem) -> Unit) {
             options.forEach { opt ->
                 SourceChip(
                     label = opt ?: "Tout",
+                    logoSource = opt,
                     selected = SearchHolder.source == opt,
                     onClick = {
                         if (SearchHolder.source != opt) {
@@ -324,7 +363,7 @@ fun HomeScreen(viewModel: VideoViewModel, onVideoClick: (VideoItem) -> Unit) {
             }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         if (SearchHolder.searched) {
             Row(
@@ -366,29 +405,11 @@ fun HomeScreen(viewModel: VideoViewModel, onVideoClick: (VideoItem) -> Unit) {
                 else -> {
                     SearchHolder.results.forEach { video ->
                         VideoRow(video = video, onClick = { onVideoClick(video) })
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
                     }
                 }
             }
         } else {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Tendances actuelles",
-                    color = Color.White,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-                IconButton(onClick = { viewModel.fetchDynamicVideos(context) }) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Rafraîchir", tint = Pal.accent)
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
             when (state) {
                 is UiState.Loading -> {
                     Box(
@@ -425,39 +446,228 @@ fun HomeScreen(viewModel: VideoViewModel, onVideoClick: (VideoItem) -> Unit) {
                     }
                 }
                 is UiState.Success -> {
-                    state.videos.forEachIndexed { index, video ->
-                        if (index == 0) {
-                            VideoCard(video = video, onClick = { onVideoClick(video) })
-                        } else {
-                            VideoRow(video = video, onClick = { onVideoClick(video) })
+                    val music = state.videos.filter { it.source == "SoundCloud" }
+                    val others = state.videos.filter { it.source != "SoundCloud" }
+                    val hero = others.firstOrNull() ?: music.firstOrNull()
+                    val musicRow = music.filter { it.id != hero?.id }
+                    val videoRows = others.filter { it.id != hero?.id }
+
+                    if (hero != null) {
+                        HeroCard(video = hero, onClick = { onVideoClick(hero) })
+                    }
+
+                    if (musicRow.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(20.dp))
+                        Text(
+                            text = "Musique en tendance",
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            musicRow.forEach { m ->
+                                MusicCard(video = m, onClick = { onVideoClick(m) })
+                            }
                         }
-                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+
+                    if (videoRows.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(20.dp))
+                        Text(
+                            text = "Vidéos en tendance",
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        videoRows.forEach { v ->
+                            VideoRow(video = v, onClick = { onVideoClick(v) })
+                            Spacer(modifier = Modifier.height(10.dp))
+                        }
                     }
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(24.dp))
     }
 }
 
 @Composable
-fun SourceChip(label: String, selected: Boolean, onClick: () -> Unit) {
+fun SourceChip(label: String, logoSource: String?, selected: Boolean, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(20.dp),
-        color = if (selected) Pal.surface2 else Pal.surface,
-        border = androidx.compose.foundation.BorderStroke(
-            width = 1.dp,
-            color = if (selected) Pal.accent else Pal.border
-        )
+        color = if (selected) Pal.accent else Pal.surface,
+        border = if (selected) null else androidx.compose.foundation.BorderStroke(1.dp, Pal.border)
     ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (logoSource != null) {
+                SourceLogo(logoSource, 16.dp)
+                Spacer(modifier = Modifier.width(6.dp))
+            }
+            Text(
+                text = label,
+                color = if (selected) Pal.bg else Pal.muted,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
+    }
+}
+
+@Composable
+fun SourceTag(source: String, fontSize: Int = 11) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        SourceLogo(source, 14.dp)
+        Spacer(modifier = Modifier.width(5.dp))
         Text(
-            text = label,
-            color = if (selected) Pal.accent else Pal.muted,
-            fontSize = 13.sp,
+            text = source,
+            color = Pal.accent,
+            fontSize = fontSize.sp,
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
+
+@Composable
+fun HeroCard(video: VideoItem, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(200.dp)
+            .clip(RoundedCornerShape(22.dp))
+            .background(Pal.surface2)
+            .clickable { onClick() }
+    ) {
+        if (video.thumbnailUrl.isNotBlank()) {
+            AsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(video.thumbnailUrl)
+                    .crossfade(true)
+                    .build(),
+                contentDescription = video.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(12.dp)
+                .background(Pal.accent, shape = RoundedCornerShape(10.dp))
+                .padding(horizontal = 10.dp, vertical = 4.dp)
+        ) {
+            Text(
+                text = "À la une",
+                color = Pal.bg,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 14.dp)
+                .size(46.dp)
+                .background(Pal.bg.copy(alpha = 0.75f), shape = RoundedCornerShape(50)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Default.PlayArrow, contentDescription = "Lire", tint = Pal.accent)
+        }
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .background(Pal.bg.copy(alpha = 0.78f))
+                .padding(horizontal = 14.dp, vertical = 10.dp)
+        ) {
+            Text(
+                text = video.title,
+                color = Color.White,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                SourceLogo(video.source, 14.dp)
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = video.details,
+                    color = Pal.muted,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun MusicCard(video: VideoItem, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .width(110.dp)
+            .clickable { onClick() }
+    ) {
+        Box(
+            modifier = Modifier
+                .size(110.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Pal.surface2),
+            contentAlignment = Alignment.Center
+        ) {
+            if (video.thumbnailUrl.isNotBlank()) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(video.thumbnailUrl)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = video.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Pal.accent)
+            }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(6.dp)
+            ) {
+                SourceLogo(video.source, 18.dp)
+            }
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = video.title,
+            color = Color.White,
+            fontSize = 12.sp,
             fontWeight = FontWeight.Medium,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = video.details.substringBefore(" • "),
+            color = Pal.muted,
+            fontSize = 11.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
@@ -467,7 +677,7 @@ fun VideoRow(video: VideoItem, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(16.dp))
             .background(Pal.surface)
             .clickable { onClick() }
             .padding(8.dp),
@@ -477,7 +687,7 @@ fun VideoRow(video: VideoItem, onClick: () -> Unit) {
             modifier = Modifier
                 .width(112.dp)
                 .height(64.dp)
-                .clip(RoundedCornerShape(8.dp))
+                .clip(RoundedCornerShape(12.dp))
                 .background(Pal.surface2),
             contentAlignment = Alignment.Center
         ) {
@@ -513,13 +723,8 @@ fun VideoRow(video: VideoItem, onClick: () -> Unit) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = video.source,
-                color = Pal.accent,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium
-            )
+            Spacer(modifier = Modifier.height(3.dp))
+            SourceTag(video.source)
         }
     }
 }
@@ -917,12 +1122,7 @@ fun VideoCard(video: VideoItem, onClick: () -> Unit, onRemove: (() -> Unit)? = n
                         .background(Pal.bg.copy(alpha = 0.67f), shape = RoundedCornerShape(8.dp))
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
-                    Text(
-                        text = video.source,
-                        color = Pal.accent,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                    SourceTag(video.source, 10)
                 }
             }
 
