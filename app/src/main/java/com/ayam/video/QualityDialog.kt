@@ -34,8 +34,8 @@ fun QualityDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = Color(0xFF130826),
-        title = { Text("Choisir la qualité", color = Color(0xFFE0AAFF)) },
+        containerColor = Pal.surface,
+        title = { Text("Choisir la qualité", color = Pal.accent) },
         text = {
             val opts = options
             val err = error
@@ -47,14 +47,14 @@ fun QualityDialog(
                     opts == null -> {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             CircularProgressIndicator(
-                                color = Color(0xFFE0AAFF),
+                                color = Pal.accent,
                                 modifier = Modifier.size(24.dp),
                                 strokeWidth = 2.dp
                             )
                             Spacer(modifier = Modifier.width(12.dp))
                             Text(
                                 "Recherche des qualités...",
-                                color = Color(0xFF9A8CB9),
+                                color = Pal.muted,
                                 fontSize = 14.sp
                             )
                         }
@@ -66,7 +66,7 @@ fun QualityDialog(
                             if (videos.isNotEmpty()) {
                                 Text(
                                     "Vidéo",
-                                    color = Color(0xFFE0AAFF),
+                                    color = Pal.accent,
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -86,7 +86,7 @@ fun QualityDialog(
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text(
                                     "Audio seulement",
-                                    color = Color(0xFFE0AAFF),
+                                    color = Pal.accent,
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -110,7 +110,7 @@ fun QualityDialog(
         confirmButton = {},
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Annuler", color = Color(0xFF9A8CB9))
+                Text("Annuler", color = Pal.muted)
             }
         }
     )

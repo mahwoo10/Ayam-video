@@ -1,12 +1,17 @@
 package com.ayam.video
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -18,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Home
@@ -55,14 +61,24 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    private val notifPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Library.init(applicationContext)
+        Pal.load(applicationContext)
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
         setContent {
             MaterialTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = Color(0xFF090412)
+                    color = Pal.bg
                 ) {
                     val viewModel: VideoViewModel = viewModel()
                     MainAppRoot(viewModel)
@@ -124,6 +140,13 @@ class VideoViewModel : ViewModel() {
     }
 
     fun isDownloaded(video: VideoItem): Boolean = _downloadedList.any { it.id == video.id }
+
+    fun removeDownload(context: Context, video: VideoItem, deleteFile: Boolean) {
+        val existing = _downloadedList.firstOrNull { it.id == video.id } ?: return
+        if (deleteFile) DownloadHolder.deleteFile(context, existing.localUri)
+        _downloadedList.remove(existing)
+        Library.save("downloads", _downloadedList)
+    }
 }
 
 data class VideoItem(
@@ -173,8 +196,8 @@ fun MainScreen(
         containerColor = Color.Transparent,
         bottomBar = {
             NavigationBar(
-                containerColor = Color(0xFF130826),
-                contentColor = Color(0xFFE0AAFF)
+                containerColor = Pal.surface,
+                contentColor = Pal.accent
             ) {
                 items.forEachIndexed { index, item ->
                     NavigationBarItem(
@@ -184,10 +207,10 @@ fun MainScreen(
                         onClick = { selectedTab = index },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = Color(0xFFFFFFFF),
-                            selectedTextColor = Color(0xFFE0AAFF),
-                            unselectedIconColor = Color(0xFF7A6B9C),
-                            unselectedTextColor = Color(0xFF7A6B9C),
-                            indicatorColor = Color(0xFF2E1A47)
+                            selectedTextColor = Pal.accent,
+                            unselectedIconColor = Pal.muted2,
+                            unselectedTextColor = Pal.muted2,
+                            indicatorColor = Pal.surface2
                         )
                     )
                 }
@@ -201,8 +224,8 @@ fun MainScreen(
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color(0xFF1B0B3A),
-                            Color(0xFF090412)
+                            Pal.bgTop,
+                            Pal.bg
                         )
                     )
                 )
@@ -237,7 +260,7 @@ fun HomeScreen(viewModel: VideoViewModel, onVideoClick: (VideoItem) -> Unit) {
     ) {
         Text(
             text = "AYAM VIDEO",
-            color = Color(0xFFE0AAFF),
+            color = Pal.accent,
             fontSize = 24.sp,
             fontWeight = FontWeight.Bold
         )
@@ -270,7 +293,7 @@ fun HomeScreen(viewModel: VideoViewModel, onVideoClick: (VideoItem) -> Unit) {
                 fontWeight = FontWeight.SemiBold
             )
             IconButton(onClick = { viewModel.fetchDynamicVideos(context) }) {
-                Icon(Icons.Default.Refresh, contentDescription = "Rafraîchir", tint = Color(0xFFE0AAFF))
+                Icon(Icons.Default.Refresh, contentDescription = "Rafraîchir", tint = Pal.accent)
             }
         }
 
@@ -284,7 +307,7 @@ fun HomeScreen(viewModel: VideoViewModel, onVideoClick: (VideoItem) -> Unit) {
                         .height(200.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator(color = Color(0xFFE0AAFF))
+                    CircularProgressIndicator(color = Pal.accent)
                 }
             }
             is UiState.Error -> {
@@ -303,11 +326,11 @@ fun HomeScreen(viewModel: VideoViewModel, onVideoClick: (VideoItem) -> Unit) {
                     Spacer(modifier = Modifier.height(12.dp))
                     Button(
                         onClick = { viewModel.fetchDynamicVideos(context) },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E1A47))
+                        colors = ButtonDefaults.buttonColors(containerColor = Pal.surface2)
                     ) {
-                        Icon(Icons.Default.Refresh, contentDescription = null, tint = Color(0xFFE0AAFF))
+                        Icon(Icons.Default.Refresh, contentDescription = null, tint = Pal.accent)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Réessayer", color = Color(0xFFE0AAFF))
+                        Text("Réessayer", color = Pal.accent)
                     }
                 }
             }
@@ -330,10 +353,10 @@ fun SourceBadge(name: String) {
     Surface(
         onClick = { isSelected = !isSelected },
         shape = RoundedCornerShape(20.dp),
-        color = if (isSelected) Color(0xFF2E1A47) else Color(0xFF130826),
+        color = if (isSelected) Pal.surface2 else Pal.surface,
         border = androidx.compose.foundation.BorderStroke(
             width = 1.dp,
-            color = if (isSelected) Color(0xFFE0AAFF) else Color(0xFF3B2859)
+            color = if (isSelected) Pal.accent else Pal.border
         )
     ) {
         Row(
@@ -344,7 +367,7 @@ fun SourceBadge(name: String) {
                 Icon(
                     imageVector = Icons.Default.Check,
                     contentDescription = null,
-                    tint = Color(0xFFE0AAFF),
+                    tint = Pal.accent,
                     modifier = Modifier.size(16.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
@@ -362,6 +385,32 @@ fun SourceBadge(name: String) {
 @Composable
 fun LibraryScreen(viewModel: VideoViewModel, onVideoClick: (VideoItem) -> Unit) {
     var isDownloadsTab by remember { mutableStateOf(false) }
+    var toRemove by remember { mutableStateOf<VideoItem?>(null) }
+    val context = LocalContext.current
+
+    toRemove?.let { v ->
+        AlertDialog(
+            onDismissRequest = { toRemove = null },
+            containerColor = Pal.surface,
+            title = { Text("Supprimer ce téléchargement ?", color = Pal.accent) },
+            text = { Text(v.title, color = Pal.muted, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.removeDownload(context, v, true)
+                    toRemove = null
+                }) { Text("Supprimer le fichier", color = Color(0xFFFF8080)) }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = {
+                        viewModel.removeDownload(context, v, false)
+                        toRemove = null
+                    }) { Text("Retirer de la liste", color = Pal.muted) }
+                    TextButton(onClick = { toRemove = null }) { Text("Annuler", color = Pal.muted) }
+                }
+            }
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -370,7 +419,7 @@ fun LibraryScreen(viewModel: VideoViewModel, onVideoClick: (VideoItem) -> Unit) 
     ) {
         Text(
             text = "Bibliothèque",
-            color = Color(0xFFE0AAFF),
+            color = Pal.accent,
             fontSize = 24.sp,
             fontWeight = FontWeight.Bold
         )
@@ -381,8 +430,8 @@ fun LibraryScreen(viewModel: VideoViewModel, onVideoClick: (VideoItem) -> Unit) 
             Button(
                 onClick = { isDownloadsTab = false },
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (!isDownloadsTab) Color(0xFF2E1A47) else Color(0xFF130826),
-                    contentColor = if (!isDownloadsTab) Color(0xFFE0AAFF) else Color(0xFF7A6B9C)
+                    containerColor = if (!isDownloadsTab) Pal.surface2 else Pal.surface,
+                    contentColor = if (!isDownloadsTab) Pal.accent else Pal.muted2
                 ),
                 shape = RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp, topEnd = 0.dp, bottomEnd = 0.dp),
                 modifier = Modifier.weight(1f).height(48.dp)
@@ -392,8 +441,8 @@ fun LibraryScreen(viewModel: VideoViewModel, onVideoClick: (VideoItem) -> Unit) 
             Button(
                 onClick = { isDownloadsTab = true },
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isDownloadsTab) Color(0xFF2E1A47) else Color(0xFF130826),
-                    contentColor = if (isDownloadsTab) Color(0xFFE0AAFF) else Color(0xFF7A6B9C)
+                    containerColor = if (isDownloadsTab) Pal.surface2 else Pal.surface,
+                    contentColor = if (isDownloadsTab) Pal.accent else Pal.muted2
                 ),
                 shape = RoundedCornerShape(topStart = 0.dp, bottomStart = 0.dp, topEnd = 12.dp, bottomEnd = 12.dp),
                 modifier = Modifier.weight(1f).height(48.dp)
@@ -418,20 +467,31 @@ fun LibraryScreen(viewModel: VideoViewModel, onVideoClick: (VideoItem) -> Unit) 
                         Icon(
                             imageVector = if (isDownloadsTab) Icons.Default.Check else Icons.Default.FavoriteBorder,
                             contentDescription = null,
-                            tint = Color(0xFF7A6B9C),
+                            tint = Pal.muted2,
                             modifier = Modifier.size(48.dp)
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
                             text = if (isDownloadsTab) "Aucune vidéo téléchargée" else "Aucune vidéo dans vos favoris",
-                            color = Color(0xFF9A8CB9),
+                            color = Pal.muted,
                             fontSize = 14.sp
                         )
                     }
                 }
             } else {
                 currentList.forEach { video ->
-                    VideoCard(video = video, onClick = { onVideoClick(video) })
+                    VideoCard(
+                        video = video,
+                        onClick = { onVideoClick(video) },
+                        onRemove = {
+                            if (isDownloadsTab) {
+                                toRemove = video
+                            } else {
+                                viewModel.toggleFavorite(video)
+                                Toast.makeText(context, "Retiré des favoris", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    )
                     Spacer(modifier = Modifier.height(12.dp))
                 }
             }
@@ -440,13 +500,45 @@ fun LibraryScreen(viewModel: VideoViewModel, onVideoClick: (VideoItem) -> Unit) 
     }
 }
 
+private fun dirSize(f: java.io.File): Long =
+    if (f.isDirectory) (f.listFiles()?.sumOf { dirSize(it) } ?: 0L) else f.length()
+
+fun cacheSizeBytes(context: Context): Long =
+    dirSize(context.cacheDir) + (context.externalCacheDir?.let { dirSize(it) } ?: 0L)
+
+fun formatBytes(b: Long): String = when {
+    b >= 1_048_576L -> String.format(java.util.Locale.US, "%.1f Mo", b / 1_048_576.0).replace('.', ',')
+    b >= 1024L -> "${b / 1024} Ko"
+    else -> "$b o"
+}
+
+fun clearCache(context: Context) {
+    try {
+        val loader = coil.Coil.imageLoader(context)
+        loader.memoryCache?.clear()
+        loader.diskCache?.clear()
+    } catch (e: Exception) { }
+    val downloading = DownloadHolder.progress.isNotEmpty()
+    val roots = listOfNotNull(context.cacheDir, context.externalCacheDir)
+    roots.forEach { root ->
+        root.listFiles()?.forEach { f ->
+            if (downloading && f.name.startsWith("ayam_")) return@forEach
+            f.deleteRecursively()
+        }
+    }
+}
+
+fun autoPlayEnabled(context: Context): Boolean =
+    context.getSharedPreferences("ayam_settings", Context.MODE_PRIVATE).getBoolean("autoplay", true)
+
 @Composable
 fun SettingsScreen() {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("ayam_settings", Context.MODE_PRIVATE) }
-    
-    var isDarkTheme by remember { mutableStateOf(prefs.getBoolean("dark_theme", true)) }
+
     var autoPlay by remember { mutableStateOf(prefs.getBoolean("autoplay", true)) }
+    var themesOpen by remember { mutableStateOf(false) }
+    var cacheSize by remember { mutableStateOf(cacheSizeBytes(context)) }
 
     Column(
         modifier = Modifier
@@ -456,7 +548,7 @@ fun SettingsScreen() {
     ) {
         Text(
             text = "Paramètres",
-            color = Color(0xFFE0AAFF),
+            color = Pal.accent,
             fontSize = 24.sp,
             fontWeight = FontWeight.Bold
         )
@@ -465,31 +557,71 @@ fun SettingsScreen() {
 
         SettingsSectionTitle("Apparence")
         Spacer(modifier = Modifier.height(8.dp))
-        SettingsStaticItem(title = "Thème de l'application", subtitle = "Saphir & Améthyste (Actif)")
-        SettingsToggleItem(
-            title = "Mode sombre automatique", 
-            checked = isDarkTheme, 
-            onCheckedChange = { 
-                isDarkTheme = it
-                prefs.edit().putBoolean("dark_theme", it).apply()
-                Toast.makeText(context, if(it) "Mode sombre activé" else "Mode sombre désactivé", Toast.LENGTH_SHORT).show()
-            }
+        SettingsActionItem(
+            title = "Thème de l'application",
+            subtitle = Pal.theme.name + (if (themesOpen) "  ▴" else "  ▾"),
+            onClick = { themesOpen = !themesOpen }
         )
+        if (themesOpen) {
+            AppThemes.all.forEach { t ->
+                val selected = t.name == Pal.theme.name
+                Card(
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = t.surface),
+                    border = androidx.compose.foundation.BorderStroke(
+                        if (selected) 2.dp else 1.dp,
+                        if (selected) t.accent else t.border
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                        .clickable { Pal.select(context, t) }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        listOf(t.bgTop, t.surface2, t.accent).forEach { c ->
+                            Box(
+                                modifier = Modifier
+                                    .size(22.dp)
+                                    .background(c, shape = RoundedCornerShape(50))
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = t.name,
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (selected) Text("✓", color = t.accent, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
 
         Spacer(modifier = Modifier.height(24.dp))
 
         SettingsSectionTitle("Données et Cache")
         Spacer(modifier = Modifier.height(8.dp))
-        SettingsActionItem(title = "Effacer le cache vidéo", subtitle = "12.4 Mo utilisés", onClick = {
-            Toast.makeText(context, "Cache nettoyé avec succès", Toast.LENGTH_SHORT).show()
-        })
+        SettingsActionItem(
+            title = "Effacer le cache",
+            subtitle = formatBytes(cacheSize) + " utilisés (images et fichiers temporaires)",
+            onClick = {
+                clearCache(context)
+                cacheSize = cacheSizeBytes(context)
+                Toast.makeText(context, "Cache effacé", Toast.LENGTH_SHORT).show()
+            }
+        )
         SettingsToggleItem(
-            title = "Lecture automatique", 
-            checked = autoPlay, 
-            onCheckedChange = { 
+            title = "Lecture automatique",
+            checked = autoPlay,
+            onCheckedChange = {
                 autoPlay = it
                 prefs.edit().putBoolean("autoplay", it).apply()
-                Toast.makeText(context, if(it) "Lecture automatique activée" else "Lecture automatique désactivée", Toast.LENGTH_SHORT).show()
             }
         )
 
@@ -497,9 +629,9 @@ fun SettingsScreen() {
 
         SettingsSectionTitle("À propos")
         Spacer(modifier = Modifier.height(8.dp))
-        SettingsStaticItem(title = "Version de l'application", subtitle = "AYAM VIDEO v1.3.0")
+        SettingsStaticItem(title = "Version de l'application", subtitle = "AYAM VIDEO v1.4.0")
         SettingsStaticItem(title = "Développé par", subtitle = "AYAM Abdoul Lab")
-        
+
         Spacer(modifier = Modifier.height(32.dp))
     }
 }
@@ -508,7 +640,7 @@ fun SettingsScreen() {
 fun SettingsSectionTitle(text: String) {
     Text(
         text = text,
-        color = Color(0xFFE0AAFF),
+        color = Pal.accent,
         fontSize = 14.sp,
         fontWeight = FontWeight.Bold
     )
@@ -518,7 +650,7 @@ fun SettingsSectionTitle(text: String) {
 fun SettingsStaticItem(title: String, subtitle: String) {
     Card(
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF130826)),
+        colors = CardDefaults.cardColors(containerColor = Pal.surface),
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
@@ -526,7 +658,7 @@ fun SettingsStaticItem(title: String, subtitle: String) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(text = title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
             Spacer(modifier = Modifier.height(2.dp))
-            Text(text = subtitle, color = Color(0xFF9A8CB9), fontSize = 12.sp)
+            Text(text = subtitle, color = Pal.muted, fontSize = 12.sp)
         }
     }
 }
@@ -535,7 +667,7 @@ fun SettingsStaticItem(title: String, subtitle: String) {
 fun SettingsToggleItem(title: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
     Card(
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF130826)),
+        colors = CardDefaults.cardColors(containerColor = Pal.surface),
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
@@ -549,7 +681,7 @@ fun SettingsToggleItem(title: String, checked: Boolean, onCheckedChange: (Boolea
             Switch(
                 checked = checked, 
                 onCheckedChange = onCheckedChange,
-                colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFFE0AAFF))
+                colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Pal.accent)
             )
         }
     }
@@ -559,7 +691,7 @@ fun SettingsToggleItem(title: String, checked: Boolean, onCheckedChange: (Boolea
 fun SettingsActionItem(title: String, subtitle: String, onClick: () -> Unit) {
     Card(
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF130826)),
+        colors = CardDefaults.cardColors(containerColor = Pal.surface),
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
@@ -568,16 +700,16 @@ fun SettingsActionItem(title: String, subtitle: String, onClick: () -> Unit) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(text = title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
             Spacer(modifier = Modifier.height(2.dp))
-            Text(text = subtitle, color = Color(0xFF9A8CB9), fontSize = 12.sp)
+            Text(text = subtitle, color = Pal.muted, fontSize = 12.sp)
         }
     }
 }
 
 @Composable
-fun VideoCard(video: VideoItem, onClick: () -> Unit) {
+fun VideoCard(video: VideoItem, onClick: () -> Unit, onRemove: (() -> Unit)? = null) {
     Card(
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF130826)),
+        colors = CardDefaults.cardColors(containerColor = Pal.surface),
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
@@ -587,7 +719,7 @@ fun VideoCard(video: VideoItem, onClick: () -> Unit) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(180.dp)
-                    .background(Color(0xFF1F103F)),
+                    .background(Pal.surface2),
                 contentAlignment = Alignment.Center
             ) {
                 if (video.thumbnailUrl.isNotBlank()) {
@@ -603,28 +735,49 @@ fun VideoCard(video: VideoItem, onClick: () -> Unit) {
 
                 Surface(
                     shape = RoundedCornerShape(50),
-                    color = Color(0xAA130826),
+                    color = Pal.surface.copy(alpha = 0.67f),
                     modifier = Modifier.size(50.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = Icons.Default.PlayArrow,
                             contentDescription = "Lire",
-                            tint = Color(0xFFE0AAFF)
+                            tint = Pal.accent
                         )
                     }
                 }
                 
+                if (onRemove != null) {
+                    IconButton(
+                        onClick = onRemove,
+                        modifier = Modifier.align(Alignment.TopStart).padding(4.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .background(Pal.bg.copy(alpha = 0.67f), shape = RoundedCornerShape(50)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = "Supprimer",
+                                tint = Color(0xFFFF8080),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
+
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(8.dp)
-                        .background(Color(0xAA090412), shape = RoundedCornerShape(8.dp))
+                        .background(Pal.bg.copy(alpha = 0.67f), shape = RoundedCornerShape(8.dp))
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
                     Text(
                         text = video.source,
-                        color = Color(0xFFE0AAFF),
+                        color = Pal.accent,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -643,7 +796,7 @@ fun VideoCard(video: VideoItem, onClick: () -> Unit) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = video.details,
-                    color = Color(0xFF9A8CB9),
+                    color = Pal.muted,
                     fontSize = 12.sp
                 )
             }
@@ -652,7 +805,7 @@ fun VideoCard(video: VideoItem, onClick: () -> Unit) {
 }
 
 @OptIn(UnstableApi::class)
-private fun startPlay(player: ExoPlayer, opt: PlayOption, startMs: Long) {
+private fun startPlay(player: ExoPlayer, opt: PlayOption, startMs: Long, play: Boolean = true) {
     if (opt.audioUrl.isBlank()) {
         player.setMediaItem(MediaItem.fromUri(Uri.parse(opt.url)))
     } else {
@@ -663,7 +816,7 @@ private fun startPlay(player: ExoPlayer, opt: PlayOption, startMs: Long) {
     }
     player.prepare()
     if (startMs > 0) player.seekTo(startMs)
-    player.playWhenReady = true
+    player.playWhenReady = play
 }
 
 @Composable
@@ -739,11 +892,11 @@ fun PlayerScreen(
             if (video.localUri.isNotBlank()) {
                 exoPlayer.setMediaItem(MediaItem.fromUri(Uri.parse(video.localUri)))
                 exoPlayer.prepare()
-                exoPlayer.playWhenReady = true
+                exoPlayer.playWhenReady = autoPlayEnabled(context)
             } else if (video.videoUrl.endsWith(".mp4")) {
                 exoPlayer.setMediaItem(MediaItem.fromUri(Uri.parse(video.videoUrl)))
                 exoPlayer.prepare()
-                exoPlayer.playWhenReady = true
+                exoPlayer.playWhenReady = autoPlayEnabled(context)
             } else {
                 val details = VideoEngine.loadDetails(context, video.videoUrl)
                 playOptions = details.playOptions
@@ -751,7 +904,7 @@ fun PlayerScreen(
                 val first = details.playOptions.firstOrNull { it.isDefault }
                     ?: details.playOptions.first()
                 selectedPlay = first
-                startPlay(exoPlayer, first, 0L)
+                startPlay(exoPlayer, first, 0L, autoPlayEnabled(context))
             }
         } catch (e: CancellationException) {
             throw e
@@ -777,8 +930,8 @@ fun PlayerScreen(
     if (showPlayQuality) {
         AlertDialog(
             onDismissRequest = { showPlayQuality = false },
-            containerColor = Color(0xFF130826),
-            title = { Text("Qualité de lecture", color = Color(0xFFE0AAFF)) },
+            containerColor = Pal.surface,
+            title = { Text("Qualité de lecture", color = Pal.accent) },
             text = {
                 Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                     playOptions.forEach { opt ->
@@ -788,9 +941,10 @@ fun PlayerScreen(
                                 showPlayQuality = false
                                 if (!isSel && exoPlayer != null) {
                                     val pos = exoPlayer.currentPosition
+                                    val wasPlaying = exoPlayer.playWhenReady
                                     selectedPlay = opt
                                     try {
-                                        startPlay(exoPlayer, opt, pos)
+                                        startPlay(exoPlayer, opt, pos, wasPlaying)
                                     } catch (e: Throwable) {
                                         streamError = "Erreur de lecture : " + (e.message ?: e.javaClass.simpleName).take(150)
                                     }
@@ -801,7 +955,7 @@ fun PlayerScreen(
                         ) {
                             Text(
                                 text = opt.label + if (isSel) "  ✓" else "",
-                                color = if (isSel) Color(0xFFE0AAFF) else Color.White,
+                                color = if (isSel) Pal.accent else Color.White,
                                 fontSize = 14.sp
                             )
                         }
@@ -809,7 +963,7 @@ fun PlayerScreen(
                     }
                     Text(
                         text = "Les qualités HD consomment plus de données.",
-                        color = Color(0xFF9A8CB9),
+                        color = Pal.muted,
                         fontSize = 12.sp
                     )
                 }
@@ -817,7 +971,7 @@ fun PlayerScreen(
             confirmButton = {},
             dismissButton = {
                 TextButton(onClick = { showPlayQuality = false }) {
-                    Text("Annuler", color = Color(0xFF9A8CB9))
+                    Text("Annuler", color = Pal.muted)
                 }
             }
         )
@@ -826,7 +980,7 @@ fun PlayerScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF090412))
+            .background(Pal.bg)
             .then(if (isFullscreen) Modifier else Modifier.verticalScroll(rememberScrollState()))
             .padding(if (isFullscreen) 0.dp else 16.dp)
     ) {
@@ -838,20 +992,20 @@ fun PlayerScreen(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Retour", tint = Color(0xFFE0AAFF))
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Retour", tint = Pal.accent)
                     }
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Lecture en cours", color = Color(0xFFE0AAFF), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text("Lecture en cours", color = Pal.accent, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (exoPlayer != null) {
                         IconButton(onClick = { isFullscreen = !isFullscreen }) {
-                            Text("[ 🗖 ]", color = Color(0xFFE0AAFF), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text("[ 🗖 ]", color = Pal.accent, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         }
                     }
                     IconButton(onClick = { viewModel.toggleFavorite(video) }) {
-                        Icon(if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, contentDescription = "Favori", tint = Color(0xFFE0AAFF))
+                        Icon(if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, contentDescription = "Favori", tint = Pal.accent)
                     }
                 }
             }
@@ -883,20 +1037,20 @@ fun PlayerScreen(
             if (isFullscreen) {
                 IconButton(
                     onClick = { isFullscreen = false },
-                    modifier = Modifier.align(Alignment.TopEnd).padding(16.dp).background(Color(0xAA130826), shape = RoundedCornerShape(50))
+                    modifier = Modifier.align(Alignment.TopEnd).padding(16.dp).background(Pal.surface.copy(alpha = 0.67f), shape = RoundedCornerShape(50))
                 ) {
                     Text("✕", color = Color.White, fontWeight = FontWeight.Bold)
                 }
             }
 
             if (streamLoading) {
-                CircularProgressIndicator(color = Color(0xFFE0AAFF), modifier = Modifier.align(Alignment.Center))
+                CircularProgressIndicator(color = Pal.accent, modifier = Modifier.align(Alignment.Center))
             }
             streamError?.let { err ->
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color(0xEE090412)),
+                        .background(Pal.bg.copy(alpha = 0.93f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(16.dp)) {
@@ -904,9 +1058,9 @@ fun PlayerScreen(
                         Spacer(modifier = Modifier.height(12.dp))
                         Button(
                             onClick = { retryKey++ },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E1A47))
+                            colors = ButtonDefaults.buttonColors(containerColor = Pal.surface2)
                         ) {
-                            Text("Réessayer", color = Color(0xFFE0AAFF))
+                            Text("Réessayer", color = Pal.accent)
                         }
                     }
                 }
@@ -919,8 +1073,8 @@ fun PlayerScreen(
                 Surface(
                     onClick = { showPlayQuality = true },
                     shape = RoundedCornerShape(20.dp),
-                    color = Color(0xFF2E1A47),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE0AAFF))
+                    color = Pal.surface2,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Pal.accent)
                 ) {
                     Text(
                         text = "Qualité : " + selectedPlay!!.label + "  ▾",
@@ -939,11 +1093,11 @@ fun PlayerScreen(
                 verticalAlignment = Alignment.Top
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(text = video.title, color = Color(0xFFE0AAFF), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text(text = video.title, color = Pal.accent, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = video.details,
-                        color = Color(0xFF9A8CB9),
+                        color = Pal.muted,
                         fontSize = 14.sp,
                         lineHeight = 20.sp,
                         modifier = Modifier.fillMaxWidth()
@@ -957,8 +1111,8 @@ fun PlayerScreen(
                         }
                     },
                     shape = RoundedCornerShape(12.dp),
-                    color = if (isDownloaded) Color(0xFF2E1A47) else Color(0xFF130826),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3B2859)),
+                    color = if (isDownloaded) Pal.surface2 else Pal.surface,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Pal.border),
                     modifier = Modifier.padding(start = 12.dp)
                 ) {
                     Row(
@@ -968,12 +1122,12 @@ fun PlayerScreen(
                         Icon(
                             imageVector = if (isDownloaded) Icons.Default.Check else Icons.Default.Add,
                             contentDescription = "Télécharger",
-                            tint = if (isDownloaded) Color(0xFFE0AAFF) else Color(0xFF7A6B9C)
+                            tint = if (isDownloaded) Pal.accent else Pal.muted2
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = downloadLabel(isDownloaded, DownloadHolder.progress[video.id]),
-                            color = if (isDownloaded) Color.White else Color(0xFF9A8CB9),
+                            color = if (isDownloaded) Color.White else Pal.muted,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium
                         )

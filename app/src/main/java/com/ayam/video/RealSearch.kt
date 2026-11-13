@@ -67,7 +67,7 @@ fun RealSearchScreen(onVideoClick: (VideoItem) -> Unit) {
     ) {
         Text(
             text = "Recherche",
-            color = Color(0xFFE0AAFF),
+            color = Pal.accent,
             fontSize = 24.sp,
             fontWeight = FontWeight.Bold
         )
@@ -76,14 +76,14 @@ fun RealSearchScreen(onVideoClick: (VideoItem) -> Unit) {
         OutlinedTextField(
             value = SearchHolder.query,
             onValueChange = { SearchHolder.query = it },
-            placeholder = { Text("Rechercher sur YouTube...", color = Color(0xFF7A6B9C)) },
+            placeholder = { Text("Rechercher sur YouTube...", color = Pal.muted2) },
             singleLine = true,
             trailingIcon = {
                 IconButton(onClick = { runSearch() }) {
                     Icon(
                         imageVector = Icons.Default.Search,
                         contentDescription = "Rechercher",
-                        tint = Color(0xFFE0AAFF)
+                        tint = Pal.accent
                     )
                 }
             },
@@ -93,9 +93,9 @@ fun RealSearchScreen(onVideoClick: (VideoItem) -> Unit) {
             colors = OutlinedTextFieldDefaults.colors(
                 focusedTextColor = Color.White,
                 unfocusedTextColor = Color.White,
-                focusedBorderColor = Color(0xFFE0AAFF),
-                unfocusedBorderColor = Color(0xFF3A2A5A),
-                cursorColor = Color(0xFFE0AAFF)
+                focusedBorderColor = Pal.accent,
+                unfocusedBorderColor = Pal.border,
+                cursorColor = Pal.accent
             ),
             modifier = Modifier.fillMaxWidth()
         )
@@ -109,7 +109,7 @@ fun RealSearchScreen(onVideoClick: (VideoItem) -> Unit) {
                     modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator(color = Color(0xFFE0AAFF))
+                    CircularProgressIndicator(color = Pal.accent)
                 }
             }
             err != null -> {
@@ -118,17 +118,17 @@ fun RealSearchScreen(onVideoClick: (VideoItem) -> Unit) {
             !SearchHolder.searched -> {
                 Text(
                     text = "Tape un mot-clé puis valide avec la loupe.",
-                    color = Color(0xFF9A8CB9),
+                    color = Pal.muted,
                     fontSize = 14.sp
                 )
             }
             SearchHolder.results.isEmpty() -> {
-                Text(text = "Aucun résultat trouvé", color = Color(0xFF9A8CB9), fontSize = 14.sp)
+                Text(text = "Aucun résultat trouvé", color = Pal.muted, fontSize = 14.sp)
             }
             else -> {
                 Text(
                     text = "Résultats (${SearchHolder.results.size})",
-                    color = Color(0xFFE0AAFF),
+                    color = Pal.accent,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold
                 )

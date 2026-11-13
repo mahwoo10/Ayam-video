@@ -87,6 +87,7 @@ object Library {
 object DownloadHolder {
 
     val progress = mutableStateMapOf<String, Float>()
+    val titles = mutableMapOf<String, String>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     fun canStart(id: String): Boolean {
@@ -103,6 +104,8 @@ object DownloadHolder {
         if (!canStart(video.id)) return
         val app = context.applicationContext
         progress[video.id] = 0f
+        titles[video.id] = video.title
+        DownloadService.start(app)
         scope.launch {
             val cache = app.cacheDir
             val vFile = File(cache, "ayam_" + video.id + "_v.tmp")
@@ -137,6 +140,8 @@ object DownloadHolder {
                 withContext(Dispatchers.Main) {
                     onDone(localUri)
                     progress.remove(video.id)
+                    titles.remove(video.id)
+                    DownloadNotifier.done(app, video.id, video.title)
                     Toast.makeText(
                         app,
                         "Téléchargé dans Téléchargements/AyamVideo",
@@ -146,6 +151,7 @@ object DownloadHolder {
             } catch (e: Exception) {
                 progress[video.id] = -1f
                 withContext(Dispatchers.Main) {
+                    DownloadNotifier.failed(app, video.id, video.title)
                     Toast.makeText(
                         app,
                         "Échec : " + (e.message ?: e.toString()).take(150),
@@ -157,6 +163,22 @@ object DownloadHolder {
                 aFile.delete()
                 mFile.delete()
             }
+        }
+    }
+
+    /** Supprime le fichier téléchargé (MediaStore ou fichier local). */
+    fun deleteFile(context: Context, localUri: String) {
+        if (localUri.isBlank()) return
+        try {
+            val uri = Uri.parse(localUri)
+            if (uri.scheme == "content") {
+                context.contentResolver.delete(uri, null, null)
+            } else {
+                val path = uri.path
+                if (path != null) File(path).delete()
+            }
+        } catch (e: Exception) {
+            // fichier déjà supprimé ou inaccessible
         }
     }
 
